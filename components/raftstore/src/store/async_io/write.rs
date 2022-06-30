@@ -484,7 +484,9 @@ where
             raft_before_save_kv_on_store_3();
             let now = Instant::now();
             let mut write_opts = WriteOptions::new();
-            write_opts.set_sync(true);
+            // shawgerj
+            write_opts.set_sync(false);
+      	    write_opts.set_disable_wal(true);
             // TODO: Add perf context
             self.batch.kv_wb.write_opt(&write_opts).unwrap_or_else(|e| {
                 panic!(
