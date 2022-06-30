@@ -210,6 +210,9 @@ pub fn initial_metric(cfg: &MetricConfig) {
 
 #[allow(dead_code)]
 pub fn overwrite_config_with_cmd_args(config: &mut TiKvConfig, matches: &ArgMatches<'_>) {
+    if matches.is_present("fail-on-write") {
+         config.rocksdb.fail_on_write = true;
+    }
     if let Some(level) = matches.value_of("log-level") {
         config.log_level = logger::get_level_by_string(level).unwrap();
     }

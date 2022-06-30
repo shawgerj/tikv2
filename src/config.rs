@@ -898,6 +898,8 @@ impl TitanDBConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct DbConfig {
     #[online_config(skip)]
+    pub fail_on_write: bool,
+    #[online_config(skip)]
     pub info_log_level: LogLevel,
     #[serde(with = "rocks_config::recovery_mode_serde")]
     #[online_config(skip)]
@@ -974,6 +976,7 @@ impl Default for DbConfig {
             ..Default::default()
         };
         DbConfig {
+            fail_on_write: false,
             wal_recovery_mode: DBRecoveryMode::PointInTime,
             wal_dir: "".to_owned(),
             wal_ttl_seconds: 0,
@@ -1017,6 +1020,7 @@ impl Default for DbConfig {
 impl DbConfig {
     pub fn build_opt(&self) -> DBOptions {
         let mut opts = DBOptions::new();
+        opts.set_fail_on_write(self.fail_on_write);
         opts.set_wal_recovery_mode(self.wal_recovery_mode);
         if !self.wal_dir.is_empty() {
             opts.set_wal_dir(&self.wal_dir);
@@ -2341,6 +2345,9 @@ pub struct TiKvConfig {
     pub cfg_path: String,
 
     #[online_config(skip)]
+    pub fail_on_write: bool,
+
+    #[online_config(skip)]
     #[serde(with = "log_level_serde")]
     pub log_level: slog::Level,
 
@@ -2444,6 +2451,7 @@ pub struct TiKvConfig {
 impl Default for TiKvConfig {
     fn default() -> TiKvConfig {
         TiKvConfig {
+            fail_on_write: false,
             cfg_path: "".to_owned(),
             log_level: slog::Level::Info,
             log_file: "".to_owned(),

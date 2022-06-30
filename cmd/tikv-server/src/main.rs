@@ -19,6 +19,13 @@ fn main() {
         .version(version_info.as_ref())
         .long_version(version_info.as_ref())
         .arg(
+             Arg::with_name("fail-on-write")
+                 .long("fail-on-write")
+                 .required(false)
+                 .takes_value(false)
+                 .help("Configure RocksDB to not persist data on exit"),
+        )
+        .arg(
             Arg::with_name("config")
                 .short("C")
                 .long("config")

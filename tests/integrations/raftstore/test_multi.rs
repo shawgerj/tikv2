@@ -822,3 +822,49 @@ fn test_node_catch_up_logs() {
     cluster.run_node(3).unwrap();
     must_get_equal(&cluster.get_engine(3), b"0009", b"0009");
 }
+
+#[test]
+fn test_rocksdb_restart_leader() {
+    let mut cluster = new_node_cluster(0, 3);
+    cluster.cfg.raft_store.raft_base_tick_interval = ReadableDuration::millis(500);
+    cluster.cfg.raft_store.raft_max_size_per_msg = ReadableSize(5);
+    cluster.cfg.raft_store.raft_election_timeout_ticks = 50;
+    cluster.cfg.raft_store.max_leader_missing_duration = ReadableDuration::hours(1);
+    cluster.cfg.raft_store.peer_stale_state_check_interval = ReadableDuration::minutes(30);
+    cluster.cfg.raft_store.abnormal_leader_missing_duration = ReadableDuration::hours(1);
+    // disable compact log to make test more stable.
+    cluster.cfg.raft_store.raft_log_gc_threshold = 3000;
+    cluster.pd_client.disable_default_operator();
+    // We use three peers([1, 2, 3]) for this test.
+    let r1 = cluster.run_conf_change();
+    cluster.pd_client.must_add_peer(r1, new_peer(2, 2));
+    cluster.pd_client.must_add_peer(r1, new_peer(3, 3));
+
+    cluster.must_put(b"k1", b"v1");
+    for i in 0..10 {
+        let v = format!("{:04}", i);
+        cluster.async_put(v.as_bytes(), v.as_bytes()).unwrap();
+    }
+    must_get_equal(&cluster.get_engine(1), b"0009", b"0009");
+    cluster.shutdown();
+    cluster.start().unwrap();
+        
+//    cluster.stop_node(1);
+//    cluster.run_node(1).unwrap();
+    must_get_equal(&cluster.get_engine(1), b"0009", b"0009");
+}
+
+#[test]
+fn test_rocksdb_durability_shutdown() {
+    // Bootstrap with `from_api`
+    let mut cluster = new_node_cluster(0, 1);
+    cluster.start().unwrap();
+    
+    // Write TiDB data
+    cluster.put(b"m_tidb_data", b"v1").unwrap();
+    cluster.shutdown();
+    
+    cluster.start().unwrap();
+    must_get_equal(&cluster.get_engine(1), b"m_tidb_data", b"v1");
+    //    cluster.shutdown();
+}

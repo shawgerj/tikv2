@@ -75,6 +75,7 @@ impl Default for WriteOptions {
         WriteOptions {
             sync: false,
             no_slowdown: false,
+            disable_wal: false,
         }
     }
 }
