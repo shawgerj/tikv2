@@ -515,8 +515,8 @@ where
             let mut write_opts = engine_traits::WriteOptions::new();
             write_opts.set_sync(need_sync);
             // shawgerj
-            write_opts.set_sync(false);
-            write_opts.set_disable_wal(true);
+            //write_opts.set_sync(false);
+            //write_opts.set_disable_wal(true);
             self.kv_wb().write_opt(&write_opts).unwrap_or_else(|e| {
                 panic!("failed to write to engine: {:?}", e);
             });
