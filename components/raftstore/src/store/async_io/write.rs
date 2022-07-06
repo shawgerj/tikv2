@@ -722,7 +722,9 @@ where
     batch.before_write_to_db(&StoreWriteMetrics::new(false));
     if !batch.kv_wb.is_empty() {
         let mut write_opts = WriteOptions::new();
-        write_opts.set_sync(true);
+        // shawgerj
+        write_opts.set_sync(false);
+        write_opts.set_disable_wal(true);
         batch.kv_wb.write_opt(&write_opts).unwrap_or_else(|e| {
             panic!("test failed to write to kv engine: {:?}", e);
         });

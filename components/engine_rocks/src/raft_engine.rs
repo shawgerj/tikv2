@@ -6,9 +6,9 @@ use crate::{util, RocksEngine, RocksWriteBatch};
 use engine_traits::{
     Error, Iterable, KvEngine, MiscExt, Mutable, Peekable, RaftEngine, RaftEngineReadOnly,
     RaftLogBatch, RaftLogGCTask, Result, SyncMutable, WriteBatch, WriteBatchExt, WriteOptions,
-    CF_DEFAULT,
+    CF_DEFAULT, CF_RAFT,
 };
-use kvproto::raft_serverpb::RaftLocalState;
+use kvproto::raft_serverpb::{RaftLocalState, RaftApplyState};
 use protobuf::Message;
 use raft::eraftpb::Entry;
 use tikv_util::{box_err, box_try};
@@ -209,7 +209,7 @@ impl RaftEngine for RocksEngine {
             } else {
                 return Ok(());
             }
-        }
+         }
         if first_index <= state.last_index {
             for index in first_index..=state.last_index {
                 let key = keys::raft_log_key(raft_group_id, index);
@@ -228,6 +228,15 @@ impl RaftEngine for RocksEngine {
 
     fn put_raft_state(&self, raft_group_id: u64, state: &RaftLocalState) -> Result<()> {
         self.put_msg(&keys::raft_state_key(raft_group_id), state)
+    }
+
+    fn put_raft_apply_state(&self, id: u64, state: &RaftApplyState) -> Result<()> {
+        self.put_msg_cf(CF_RAFT, &keys::apply_state_key(id), state)
+    }
+
+    fn get_raft_apply_state(&self, id: u64) -> Result<Option<RaftApplyState>> {
+        let key = keys::apply_state_key(id);
+        self.get_msg_cf(CF_RAFT, &key)
     }
 
     fn batch_gc(&self, groups: Vec<RaftLogGCTask>) -> Result<usize> {
@@ -299,6 +308,10 @@ impl RaftLogBatch for RocksWriteBatch {
 
     fn put_raft_state(&mut self, raft_group_id: u64, state: &RaftLocalState) -> Result<()> {
         self.put_msg(&keys::raft_state_key(raft_group_id), state)
+    }
+
+    fn put_raft_apply_state(&mut self, id: u64, state: &RaftApplyState) -> Result<()> {
+        self.put_msg_cf(CF_RAFT, &keys::apply_state_key(id), state)
     }
 
     fn persist_size(&self) -> usize {

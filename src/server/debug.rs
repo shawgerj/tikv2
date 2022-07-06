@@ -191,14 +191,14 @@ impl<ER: RaftEngine> Debugger<ER> {
         let apply_state_key = keys::apply_state_key(region_id);
         let apply_state = box_try!(
             self.engines
-                .kv
+                .raft
                 .get_msg_cf::<RaftApplyState>(CF_RAFT, &apply_state_key)
         );
 
         let region_state_key = keys::region_state_key(region_id);
         let region_state = box_try!(
             self.engines
-                .kv
+                .raft
                 .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
         );
 
@@ -218,7 +218,7 @@ impl<ER: RaftEngine> Debugger<ER> {
         let region_state_key = keys::region_state_key(region_id);
         match self
             .engines
-            .kv
+            .raft
             .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
         {
             Ok(Some(region_state)) => {
@@ -327,7 +327,7 @@ impl<ER: RaftEngine> Debugger<ER> {
     /// peers, version, and key range) from `region` which comes from PD normally.
     pub fn set_region_tombstone(&self, regions: Vec<Region>) -> Result<Vec<(u64, Error)>> {
         let store_id = self.get_store_id()?;
-        let db = &self.engines.kv;
+        let db = &self.engines.raft;
         let mut wb = db.write_batch();
 
         let mut errors = Vec::with_capacity(regions.len());
@@ -347,7 +347,7 @@ impl<ER: RaftEngine> Debugger<ER> {
     }
 
     pub fn set_region_tombstone_by_id(&self, regions: Vec<u64>) -> Result<Vec<(u64, Error)>> {
-        let db = &self.engines.kv;
+        let db = &self.engines.raft;
         let mut wb = db.write_batch();
         let mut errors = Vec::with_capacity(regions.len());
         for region_id in regions {
@@ -785,10 +785,10 @@ impl<ER: RaftEngine> Debugger<ER> {
 
         // RaftApplyState.
         let key = keys::apply_state_key(region_id);
-        if box_try!(kv.get_msg_cf::<RaftApplyState>(CF_RAFT, &key)).is_some() {
+        if box_try!(raft.get_msg_cf::<RaftApplyState>(CF_RAFT, &key)).is_some() {
             return Err(Error::Other("Store already has the RaftApplyState".into()));
         }
-        box_try!(write_initial_apply_state(&mut kv_wb, region_id));
+        box_try!(write_initial_apply_state(&mut raft_wb, region_id));
 
         // RaftLocalState.
         if box_try!(raft.get_raft_state(region_id)).is_some() {
@@ -1254,6 +1254,7 @@ fn validate_db_and_cf(db: DBType, cf: &str) -> Result<()> {
         | (DBType::Kv, CF_WRITE)
         | (DBType::Kv, CF_LOCK)
         | (DBType::Kv, CF_RAFT)
+        | (DBType::RAFT, CF_RAFT)    
         | (DBType::Raft, CF_DEFAULT) => Ok(()),
         _ => Err(Error::InvalidArgument(format!(
             "invalid cf {:?} for db {:?}",
@@ -1375,7 +1376,7 @@ mod tests {
         let mut apply_state = RaftApplyState::default();
         apply_state.set_applied_index(applied_index);
         apply_state.set_commit_index(commit_index);
-        kv_engine
+        raft_engine
             .put_msg_cf(CF_RAFT, &apply_state_key, &apply_state)
             .unwrap();
 
@@ -1443,6 +1444,7 @@ mod tests {
             (DBType::Kv, CF_WRITE),
             (DBType::Kv, CF_LOCK),
             (DBType::Kv, CF_RAFT),
+            (DBType::Raft, CF_RAFT),
             (DBType::Raft, CF_DEFAULT),
         ];
         for (db, cf) in valid_cases {
@@ -1452,7 +1454,6 @@ mod tests {
         let invalid_cases = vec![
             (DBType::Raft, CF_WRITE),
             (DBType::Raft, CF_LOCK),
-            (DBType::Raft, CF_RAFT),
             (DBType::Invalid, CF_DEFAULT),
             (DBType::Invalid, "BAD_CF"),
         ];
@@ -1573,11 +1574,11 @@ mod tests {
         let apply_state_key = keys::apply_state_key(region_id);
         let mut apply_state = RaftApplyState::default();
         apply_state.set_applied_index(42);
-        kv_engine
+        raft_engine
             .put_msg_cf(CF_RAFT, &apply_state_key, &apply_state)
             .unwrap();
         assert_eq!(
-            kv_engine
+            raft_engine
                 .get_msg_cf::<RaftApplyState>(CF_RAFT, &apply_state_key)
                 .unwrap()
                 .unwrap(),
@@ -1587,11 +1588,11 @@ mod tests {
         let region_state_key = keys::region_state_key(region_id);
         let mut region_state = RegionLocalState::default();
         region_state.set_state(PeerState::Tombstone);
-        kv_engine
+        raft_engine
             .put_msg_cf(CF_RAFT, &region_state_key, &region_state)
             .unwrap();
         assert_eq!(
-            kv_engine
+            raft_engine
                 .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
                 .unwrap()
                 .unwrap(),
@@ -1611,7 +1612,8 @@ mod tests {
     #[test]
     fn test_region_size() {
         let debugger = new_debugger();
-        let engine = &debugger.engines.kv;
+        let engine_kv = &debugger.engines.kv;
+        let engine_raft = &debugger.engines.raft;
 
         let region_id = 1;
         let region_state_key = keys::region_state_key(region_id);
@@ -1621,14 +1623,14 @@ mod tests {
         region.set_end_key(b"zz".to_vec());
         let mut state = RegionLocalState::default();
         state.set_region(region);
-        engine
+        engine_raft
             .put_msg_cf(CF_RAFT, &region_state_key, &state)
             .unwrap();
 
         let cfs = vec![CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE];
         let (k, v) = (keys::data_key(b"k"), b"v");
         for cf in &cfs {
-            engine.put_cf(cf, k.as_slice(), v).unwrap();
+            engine_kv.put_cf(cf, k.as_slice(), v).unwrap();
         }
 
         let sizes = debugger.region_size(region_id, cfs.clone()).unwrap();
@@ -1651,7 +1653,7 @@ mod tests {
     fn test_tombstone_regions() {
         let debugger = new_debugger();
         debugger.set_store_id(11);
-        let engine = &debugger.engines.kv;
+        let engine = &debugger.engines.raft;
 
         // region 1 with peers at stores 11, 12, 13.
         let region_1 = init_region_state(engine.as_inner(), 1, &[11, 12, 13], 0);
@@ -1705,7 +1707,7 @@ mod tests {
     fn test_tombstone_regions_by_id() {
         let debugger = new_debugger();
         debugger.set_store_id(11);
-        let engine = &debugger.engines.kv;
+        let engine = &debugger.engines.raft;
 
         // tombstone region 1 which currently not exists.
         let errors = debugger.set_region_tombstone_by_id(vec![1]).unwrap();
@@ -1731,7 +1733,7 @@ mod tests {
     fn test_remove_failed_stores() {
         let debugger = new_debugger();
         debugger.set_store_id(100);
-        let engine = &debugger.engines.kv;
+        let engine = &debugger.engines.raft;
 
         let get_region_stores = |engine: &Arc<DB>, region_id: u64| {
             get_region_state(engine, region_id)

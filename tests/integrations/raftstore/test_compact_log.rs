@@ -14,7 +14,7 @@ fn get_raft_msg_or_default<M: protobuf::Message + Default>(
     key: &[u8],
 ) -> M {
     engines
-        .kv
+        .raft
         .get_msg_cf(CF_RAFT, key)
         .unwrap()
         .unwrap_or_default()

@@ -1114,7 +1114,7 @@ impl<T: Simulator> Cluster<T> {
 
     pub fn apply_state(&self, region_id: u64, store_id: u64) -> RaftApplyState {
         let key = keys::apply_state_key(region_id);
-        self.get_engine(store_id)
+        self.get_raft_engine(store_id)
             .c()
             .get_msg_cf::<RaftApplyState>(engine_traits::CF_RAFT, &key)
             .unwrap()
@@ -1131,7 +1131,7 @@ impl<T: Simulator> Cluster<T> {
     }
 
     pub fn region_local_state(&self, region_id: u64, store_id: u64) -> RegionLocalState {
-        self.get_engine(store_id)
+        self.get_raft_engine(store_id)
             .c()
             .get_msg_cf::<RegionLocalState>(
                 engine_traits::CF_RAFT,
@@ -1144,7 +1144,7 @@ impl<T: Simulator> Cluster<T> {
     pub fn must_peer_state(&self, region_id: u64, store_id: u64, peer_state: PeerState) {
         for _ in 0..100 {
             let state = self
-                .get_engine(store_id)
+                .get_raft_engine(store_id)
                 .c()
                 .get_msg_cf::<RegionLocalState>(
                     engine_traits::CF_RAFT,

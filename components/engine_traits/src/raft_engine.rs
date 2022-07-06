@@ -1,7 +1,7 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
 use crate::*;
-use kvproto::raft_serverpb::RaftLocalState;
+use kvproto::raft_serverpb::{RaftLocalState, RaftApplyState};
 use raft::eraftpb::Entry;
 
 pub trait RaftEngineReadOnly: Sync + Send + 'static {
@@ -29,7 +29,7 @@ pub struct RaftLogGCTask {
     pub to: u64,
 }
 
-pub trait RaftEngine: RaftEngineReadOnly + Clone + Sync + Send + 'static {
+pub trait RaftEngine: RaftEngineReadOnly + Iterable + Clone + Sync + Send + 'static {
     type LogBatch: RaftLogBatch;
 
     fn log_batch(&self, capacity: usize) -> Self::LogBatch;
@@ -64,6 +64,10 @@ pub trait RaftEngine: RaftEngineReadOnly + Clone + Sync + Send + 'static {
     fn append(&self, raft_group_id: u64, entries: Vec<Entry>) -> Result<usize>;
 
     fn put_raft_state(&self, raft_group_id: u64, state: &RaftLocalState) -> Result<()>;
+
+    fn put_raft_apply_state(&self, id: u64, state: &RaftApplyState) -> Result<()>;
+
+    fn get_raft_apply_state(&self, id: u64) -> Result<Option<RaftApplyState>>;
 
     /// Like `cut_logs` but the range could be very large. Return the deleted count.
     /// Generally, `from` can be passed in `0`.
@@ -110,6 +114,8 @@ pub trait RaftLogBatch: Send {
     fn cut_logs(&mut self, raft_group_id: u64, from: u64, to: u64);
 
     fn put_raft_state(&mut self, raft_group_id: u64, state: &RaftLocalState) -> Result<()>;
+
+    fn put_raft_apply_state(&mut self, id: u64, state: &RaftApplyState) -> Result<()>;
 
     /// The data size of this RaftLogBatch.
     fn persist_size(&self) -> usize;

@@ -696,7 +696,7 @@ where
     curr_health_status: ServingStatus,
 }
 
-impl<EK, ER, T> Runner<EK, ER, T>
+impl<EK, ER: Iterable, T> Runner<EK, ER, T>
 where
     EK: KvEngine,
     ER: RaftEngine,
@@ -1046,7 +1046,7 @@ where
         if send_detailed_report {
             let mut store_report = pdpb::StoreReport::new();
             store_info
-                .kv_engine
+                .raft_engine
                 .scan_cf(
                     CF_RAFT,
                     keys::REGION_META_MIN_KEY,

@@ -3,7 +3,7 @@
 use crate::engine::PanicEngine;
 use crate::write_batch::PanicWriteBatch;
 use engine_traits::{Error, RaftEngine, RaftEngineReadOnly, RaftLogBatch, Result};
-use kvproto::raft_serverpb::RaftLocalState;
+use kvproto::raft_serverpb::{RaftLocalState, RaftApplyState};
 use raft::eraftpb::Entry;
 
 impl RaftEngineReadOnly for PanicEngine {
@@ -74,6 +74,14 @@ impl RaftEngine for PanicEngine {
         panic!()
     }
 
+    fn put_raft_apply_state(&self, id: u64, state: &RaftApplyState) -> Result<()> {
+        panic!()
+    }
+
+    fn get_raft_apply_state(&self, id: u64) -> Result<Option<RaftApplyState>> {
+        panic!()
+    }
+
     fn gc(&self, raft_group_id: u64, mut from: u64, to: u64) -> Result<usize> {
         panic!()
     }
@@ -113,6 +121,10 @@ impl RaftLogBatch for PanicWriteBatch {
     }
 
     fn put_raft_state(&mut self, raft_group_id: u64, state: &RaftLocalState) -> Result<()> {
+        panic!()
+    }
+
+    fn put_raft_apply_state(&mut self, id: u64, state: &RaftApplyState) -> Result<()> {
         panic!()
     }
 

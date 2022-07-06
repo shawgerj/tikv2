@@ -512,8 +512,8 @@ fn init_apply_state<EK: KvEngine, ER: RaftEngine>(
 ) -> Result<RaftApplyState> {
     Ok(
         match engines
-            .kv
-            .get_msg_cf(CF_RAFT, &keys::apply_state_key(region.get_id()))?
+            .raft
+            .get_raft_apply_state(region.get_id())?
         {
             Some(s) => s,
             None => {
@@ -1718,7 +1718,7 @@ pub fn write_initial_raft_state<W: RaftLogBatch>(raft_wb: &mut W, region_id: u64
 
 // When we bootstrap the region or handling split new region, we must
 // call this to initialize region apply state first.
-pub fn write_initial_apply_state<T: Mutable>(kv_wb: &mut T, region_id: u64) -> Result<()> {
+pub fn write_initial_apply_state<T: Mutable>(raft_wb: &mut T, region_id: u64) -> Result<()> {
     let mut apply_state = RaftApplyState::default();
     apply_state.set_applied_index(RAFT_INIT_LOG_INDEX);
     apply_state
@@ -1728,7 +1728,7 @@ pub fn write_initial_apply_state<T: Mutable>(kv_wb: &mut T, region_id: u64) -> R
         .mut_truncated_state()
         .set_term(RAFT_INIT_LOG_TERM);
 
-    kv_wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(region_id), &apply_state)?;
+    raft_wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(region_id), &apply_state)?;
     Ok(())
 }
 
