@@ -36,7 +36,7 @@ use time::{self, Timespec};
 
 use collections::HashMap;
 use engine_traits::CompactedEvent;
-use engine_traits::{RaftEngine, RaftLogBatch, WriteOptions};
+use engine_traits::{RaftEngine, RaftLogBatch};
 use keys::{self, data_end_key, data_key, enc_end_key, enc_start_key};
 use pd_client::{FeatureGate, PdClient};
 use sst_importer::SSTImporter;
@@ -2523,13 +2523,12 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
 
     fn on_create_peer(&self, region: Region) {
         info!("creating a peer"; "peer" => ?region);
-        let mut kv_wb = self.ctx.engines.kv.write_batch();
-        let region_state_key = keys::region_state_key(region.get_id());
+        let mut raft_wb = self.ctx.engines.raft.log_batch(0);
         match self
             .ctx
             .engines
-            .kv
-            .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
+            .raft
+            .get_raft_region_state(region.get_id())
         {
             Ok(Some(region_state)) => {
                 info!(
@@ -2543,18 +2542,21 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
                 panic!("cannot determine whether {:?} exists, err {:?}", region, e)
             }
         };
-        peer_storage::write_peer_state(&mut kv_wb, &region, PeerState::Normal, None)
+        peer_storage::write_peer_state(&mut raft_wb, &region, PeerState::Normal, None)
             .unwrap_or_else(|e| {
                 panic!(
                     "fail to add peer state into write batch while creating {:?} err {:?}",
                     region, e
                 )
             });
-        let mut write_opts = WriteOptions::new();
-        write_opts.set_sync(true);
-        if let Err(e) = kv_wb.write_opt(&write_opts) {
-            panic!("fail to write while creating {:?} err {:?}", region, e);
+        if let Err(e) = self.ctx.engines.raft.consume(&mut raft_wb, true) {
+            panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
         }
+        // let mut write_opts = WriteOptions::new();
+        // write_opts.set_sync(true);
+        // if let Err(e) = kv_wb.write_opt(&write_opts) {
+        //     panic!("fail to write while creating {:?} err {:?}", region, e);
+        // }
         let (sender, mut peer) = match PeerFsm::create(
             self.ctx.store.get_id(),
             &self.ctx.cfg,

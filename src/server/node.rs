@@ -229,7 +229,7 @@ where
         self.system.router()
     }
     /// Gets a transmission end of a channel which is used send messages to apply worker.
-    pub fn get_apply_router(&self) -> ApplyRouter<EK> {
+    pub fn get_apply_router(&self) -> ApplyRouter<EK, ER> {
         self.system.apply_router()
     }
 

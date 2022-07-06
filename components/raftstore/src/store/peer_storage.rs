@@ -1227,9 +1227,9 @@ where
         }
         // Write its source peers' `RegionLocalState` together with itself for atomicity
         for r in destroy_regions {
-            write_peer_state(kv_wb, r, PeerState::Tombstone, None)?;
+            write_peer_state(raft_wb, r, PeerState::Tombstone, None)?;
         }
-        write_peer_state(kv_wb, &region, PeerState::Applying, None)?;
+        write_peer_state(raft_wb, &region, PeerState::Applying, None)?;
 
         let last_index = snap.get_metadata().get_index();
 
@@ -1718,7 +1718,7 @@ pub fn write_initial_raft_state<W: RaftLogBatch>(raft_wb: &mut W, region_id: u64
 
 // When we bootstrap the region or handling split new region, we must
 // call this to initialize region apply state first.
-pub fn write_initial_apply_state<T: Mutable>(raft_wb: &mut T, region_id: u64) -> Result<()> {
+pub fn write_initial_apply_state<T: RaftLogBatch>(raft_wb: &mut T, region_id: u64) -> Result<()> {
     let mut apply_state = RaftApplyState::default();
     apply_state.set_applied_index(RAFT_INIT_LOG_INDEX);
     apply_state
@@ -1728,12 +1728,12 @@ pub fn write_initial_apply_state<T: Mutable>(raft_wb: &mut T, region_id: u64) ->
         .mut_truncated_state()
         .set_term(RAFT_INIT_LOG_TERM);
 
-    raft_wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(region_id), &apply_state)?;
+    raft_wb.put_raft_apply_state(region_id, &apply_state)?;
     Ok(())
 }
 
-pub fn write_peer_state<T: Mutable>(
-    kv_wb: &mut T,
+pub fn write_peer_state<T: RaftLogBatch>(
+    raft_wb: &mut T,
     region: &metapb::Region,
     state: PeerState,
     merge_state: Option<MergeState>,
@@ -1751,7 +1751,7 @@ pub fn write_peer_state<T: Mutable>(
         "region_id" => region_id,
         "state" => ?region_state,
     );
-    kv_wb.put_msg_cf(CF_RAFT, &keys::region_state_key(region_id), &region_state)?;
+    raft_wb.put_raft_region_state(region_id, &region_state)?;
     Ok(())
 }
 

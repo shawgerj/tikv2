@@ -188,17 +188,16 @@ impl<ER: RaftEngine> Debugger<ER> {
     pub fn region_info(&self, region_id: u64) -> Result<RegionInfo> {
         let raft_state = box_try!(self.engines.raft.get_raft_state(region_id));
 
-        let apply_state_key = keys::apply_state_key(region_id);
         let apply_state = box_try!(
             self.engines
                 .raft
-                .get_msg_cf::<RaftApplyState>(CF_RAFT, &apply_state_key)
+                .get_raft_apply_state(region_id)
         );
 
         let region_state_key = keys::region_state_key(region_id);
         let region_state = box_try!(
             self.engines
-                .raft
+                .kv
                 .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
         );
 
@@ -218,7 +217,7 @@ impl<ER: RaftEngine> Debugger<ER> {
         let region_state_key = keys::region_state_key(region_id);
         match self
             .engines
-            .raft
+            .kv
             .get_msg_cf::<RegionLocalState>(CF_RAFT, &region_state_key)
         {
             Ok(Some(region_state)) => {
@@ -327,7 +326,7 @@ impl<ER: RaftEngine> Debugger<ER> {
     /// peers, version, and key range) from `region` which comes from PD normally.
     pub fn set_region_tombstone(&self, regions: Vec<Region>) -> Result<Vec<(u64, Error)>> {
         let store_id = self.get_store_id()?;
-        let db = &self.engines.raft;
+        let db = &self.engines.kv;
         let mut wb = db.write_batch();
 
         let mut errors = Vec::with_capacity(regions.len());
@@ -347,7 +346,7 @@ impl<ER: RaftEngine> Debugger<ER> {
     }
 
     pub fn set_region_tombstone_by_id(&self, regions: Vec<u64>) -> Result<Vec<(u64, Error)>> {
-        let db = &self.engines.raft;
+        let db = &self.engines.kv;
         let mut wb = db.write_batch();
         let mut errors = Vec::with_capacity(regions.len());
         for region_id in regions {
@@ -784,8 +783,7 @@ impl<ER: RaftEngine> Debugger<ER> {
         box_try!(kv_wb.put_msg_cf(CF_RAFT, &key, &region_state));
 
         // RaftApplyState.
-        let key = keys::apply_state_key(region_id);
-        if box_try!(raft.get_msg_cf::<RaftApplyState>(CF_RAFT, &key)).is_some() {
+        if box_try!(raft.get_raft_apply_state(region_id)).is_some() {
             return Err(Error::Other("Store already has the RaftApplyState".into()));
         }
         box_try!(write_initial_apply_state(&mut raft_wb, region_id));
@@ -1254,7 +1252,7 @@ fn validate_db_and_cf(db: DBType, cf: &str) -> Result<()> {
         | (DBType::Kv, CF_WRITE)
         | (DBType::Kv, CF_LOCK)
         | (DBType::Kv, CF_RAFT)
-        | (DBType::RAFT, CF_RAFT)    
+        | (DBType::Raft, CF_RAFT)    
         | (DBType::Raft, CF_DEFAULT) => Ok(()),
         _ => Err(Error::InvalidArgument(format!(
             "invalid cf {:?} for db {:?}",

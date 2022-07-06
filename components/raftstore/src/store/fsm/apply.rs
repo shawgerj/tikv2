@@ -540,10 +540,9 @@ where
             self.kv_wb_last_keys = 0;
         }
         // shawgerj added: apply_state needs to be written to raft engine now
-        let mut write_raft_time = 0f64;
-        if !self.r_wb_mut().is_empty() {
+        if !self.r_wb.is_empty() {
             self.engines.raft.consume_and_shrink(
-                self.r_wb_mut(),
+                &mut self.r_wb,
                 true,
                 RAFT_WB_SHRINK_SIZE,
                 RAFT_WB_DEFAULT_SIZE,
@@ -622,11 +621,6 @@ where
     #[inline]
     pub fn kv_wb_mut(&mut self) -> &mut EK::WriteBatch {
         &mut self.kv_wb
-    }
-
-    #[inline]
-    pub fn r_wb(&self) -> &ER::LogBatch {
-        &self.r_wb
     }
 
     #[inline]
@@ -1944,7 +1938,7 @@ where
         } else {
             PeerState::Normal
         };
-        if let Err(e) = write_peer_state(ctx.kv_wb_mut(), &region, state, None) {
+        if let Err(e) = write_peer_state(ctx.r_wb_mut(), &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -1989,7 +1983,7 @@ where
             PeerState::Normal
         };
 
-        if let Err(e) = write_peer_state(ctx.kv_wb_mut(), &region, state, None) {
+        if let Err(e) = write_peer_state(ctx.r_wb_mut(), &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -2375,7 +2369,7 @@ where
             }
         }
 
-        let kv_wb_mut = ctx.kv_wb_mut();
+        let raft_wb_mut = ctx.r_wb_mut();
         for new_region in &regions {
             if new_region.get_id() == derived.get_id() {
                 continue;
@@ -2392,8 +2386,8 @@ where
                 );
                 continue;
             }
-            write_peer_state(kv_wb_mut, new_region, PeerState::Normal, None)
-                .and_then(|_| write_initial_apply_state(kv_wb_mut, new_region.get_id()))
+            write_peer_state(raft_wb_mut, new_region, PeerState::Normal, None)
+                .and_then(|_| write_initial_apply_state(raft_wb_mut, new_region.get_id()))
                 .unwrap_or_else(|e| {
                     panic!(
                         "{} fails to save split region {:?}: {:?}",
@@ -2401,7 +2395,7 @@ where
                     )
                 });
         }
-        write_peer_state(kv_wb_mut, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(raft_wb_mut, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!("{} fails to update region {:?}: {:?}", self.tag, derived, e)
         });
         let mut resp = AdminResponse::default();
@@ -2464,7 +2458,7 @@ where
         merging_state.set_target(prepare_merge.get_target().to_owned());
         merging_state.set_commit(ctx.exec_log_index);
         write_peer_state(
-            ctx.kv_wb_mut(),
+            ctx.r_wb_mut(),
             &region,
             PeerState::Merging,
             Some(merging_state.clone()),
@@ -2600,14 +2594,14 @@ where
         } else {
             region.set_start_key(source_region.get_start_key().to_vec());
         }
-        let kv_wb_mut = ctx.kv_wb_mut();
-        write_peer_state(kv_wb_mut, &region, PeerState::Normal, None)
+        let raft_wb_mut = ctx.r_wb_mut();
+        write_peer_state(raft_wb_mut, &region, PeerState::Normal, None)
             .and_then(|_| {
                 // TODO: maybe all information needs to be filled?
                 let mut merging_state = MergeState::default();
                 merging_state.set_target(self.region.clone());
                 write_peer_state(
-                    kv_wb_mut,
+                    raft_wb_mut,
                     source_region,
                     PeerState::Tombstone,
                     Some(merging_state),
@@ -2658,7 +2652,7 @@ where
         let version = region.get_region_epoch().get_version();
         // Update version to avoid duplicated rollback requests.
         region.mut_region_epoch().set_version(version + 1);
-        write_peer_state(ctx.kv_wb_mut(), &region, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(ctx.r_wb_mut(), &region, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!(
                 "{} failed to rollback merge {:?}: {:?}",
                 self.tag, rollback, e

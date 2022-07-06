@@ -4,14 +4,13 @@ use std::fs;
 use std::path::Path;
 
 use engine_traits::{
-    CacheStats, RaftEngine, RaftEngineReadOnly, RaftLogBatch as RaftLogBatchTrait, Result,
+    CacheStats, RaftEngine, RaftEngineReadOnly, RaftLogBatch as RaftLogBatchTrait, Result, 
 };
-use kvproto::raft_serverpb::{RaftLocalState, RaftApplyState};
+use kvproto::raft_serverpb::{RaftLocalState, RaftApplyState, RegionLocalState};
 use raft::eraftpb::Entry;
 use raft_engine::{
     Command, Error as RaftEngineError, LogBatch, MessageExt, RaftLogEngine as RawRaftEngine,
 };
-
 pub use raft_engine::{Config as RaftEngineConfig, RecoveryMode};
 
 #[derive(Clone)]
@@ -61,6 +60,7 @@ impl RaftLogEngine {
 pub struct RaftLogBatch(LogBatch<MessageExtTyped>);
 
 const RAFT_LOG_STATE_KEY: &[u8] = b"R";
+const RAFT_REGION_STATE_KEY: &[u8] = &[0x03];
 const RAFT_APPLY_STATE_KEY: &[u8] = &[0x04];
 
 impl RaftLogBatchTrait for RaftLogBatch {
@@ -83,7 +83,13 @@ impl RaftLogBatchTrait for RaftLogBatch {
         self.0
             .put_message(id, RAFT_APPLY_STATE_KEY.to_vec(), state)
             .map_err(transfer_error)
-    }        
+    }
+
+    fn put_raft_region_state(&mut self, id: u64, state: &RegionLocalState) -> Result<()> {
+        self.0
+            .put_message(id, RAFT_REGION_STATE_KEY.to_vec(), state)
+            .map_err(transfer_error)
+    }
 
     fn persist_size(&self) -> usize {
         self.0.approximate_size()
@@ -188,9 +194,21 @@ impl RaftEngine for RaftLogEngine {
             .map_err(transfer_error)
     }
 
+    fn put_raft_region_state(&self, id: u64, state: &RegionLocalState) -> Result<()> {
+        self.0
+            .put_message(id, RAFT_REGION_STATE_KEY, state)
+            .map_err(transfer_error)
+    }
+
     fn get_raft_apply_state(&self, id: u64) -> Result<Option<RaftApplyState>> {
         self.0
             .get_message(id, RAFT_APPLY_STATE_KEY)
+            .map_err(transfer_error)
+    }
+
+    fn get_raft_region_state(&self, id: u64) -> Result<Option<RegionLocalState>> {
+        self.0
+            .get_message(id, RAFT_REGION_STATE_KEY)
             .map_err(transfer_error)
     }
 

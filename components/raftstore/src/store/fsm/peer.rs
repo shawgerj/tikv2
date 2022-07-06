@@ -13,7 +13,7 @@ use batch_system::{BasicMailbox, Fsm};
 use collections::HashMap;
 use engine_traits::CF_RAFT;
 use engine_traits::{
-    Engines, KvEngine, RaftEngine, SSTMetaInfo, WriteBatch, WriteBatchExt, WriteOptions,
+    Engines, KvEngine, RaftEngine, SSTMetaInfo, WriteBatchExt,
 };
 use error_code::ErrorCodeExt;
 use fail::fail_point;
@@ -754,18 +754,23 @@ where
                 );
             }
         };
-        let mut kv_wb = self.ctx.engines.kv.write_batch();
-        write_peer_state(&mut kv_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
+        let mut r_wb = self.ctx.engines.raft.log_batch(0);
+        write_peer_state(&mut r_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!(
                 "fails to write RegionLocalState {:?} into write brach, err {:?}",
                 region, e
             )
         });
-        let mut write_opts = WriteOptions::new();
-        write_opts.set_sync(true);
-        if let Err(e) = kv_wb.write_opt(&write_opts) {
+        
+        if let Err(e) = self.ctx.engines.raft.consume(&mut r_wb, true) {
             panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
         }
+            
+        // let mut write_opts = WriteOptions::new();
+        // write_opts.set_sync(true);
+        // if let Err(e) = kv_wb.write_opt(&write_opts) {
+        //     panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
+        // }
 
         {
             let mut meta = self.ctx.store_meta.lock().unwrap();
