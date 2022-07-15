@@ -19,6 +19,10 @@ pub(crate) fn get_env(
     )?))
 }
 
+pub(crate) fn get_fault_injection_env() -> Result<Arc<Env>, String> {
+    Ok(Arc::new(Env::new_fault_injection()))
+}
+
 pub struct WrappedFileSystemInspector<T: FileSystemInspector> {
     inspector: T,
 }

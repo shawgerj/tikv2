@@ -153,7 +153,7 @@ impl RocksEngine {
 // every engine.
 impl RaftEngine for RocksEngine {
     type LogBatch = RocksWriteBatch;
-
+    
     fn log_batch(&self, capacity: usize) -> Self::LogBatch {
         RocksWriteBatch::with_capacity(self.as_inner().clone(), capacity)
     }

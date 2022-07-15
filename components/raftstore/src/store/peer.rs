@@ -999,6 +999,7 @@ where
             }
 
             write_peer_state(
+                &mut kv_wb,
                 &mut raft_wb,
                 &region,
                 PeerState::Tombstone,

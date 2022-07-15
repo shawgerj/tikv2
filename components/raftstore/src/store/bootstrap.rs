@@ -6,7 +6,7 @@ use super::peer_storage::{
 use super::util::new_peer;
 use crate::Result;
 use engine_traits::{Engines, KvEngine, Mutable, RaftEngine, WriteBatch};
-use engine_traits::{CF_DEFAULT, CF_RAFT};
+use engine_traits::{ALL_CFS, CF_DEFAULT, CF_RAFT};
 
 use kvproto::metapb;
 use kvproto::raft_serverpb::{RaftLocalState, RegionLocalState, StoreIdent};
@@ -78,12 +78,15 @@ pub fn prepare_bootstrap_cluster(
     let mut wb = engines.kv.write_batch();
     box_try!(wb.put_msg(keys::PREPARE_BOOTSTRAP_KEY, region));
     box_try!(wb.put_msg_cf(CF_RAFT, &keys::region_state_key(region.get_id()), &state));
-    wb.write()?;
-    engines.sync_kv()?;
     
     let mut raft_wb = engines.raft.log_batch(1024);
-    write_initial_apply_state(&mut raft_wb, region.get_id())?;
+    write_initial_apply_state(&mut wb, &mut raft_wb, region.get_id())?;
     write_initial_raft_state(&mut raft_wb, region.get_id())?;
+
+    let mut write_opts = engine_traits::WriteOptions::new();
+    write_opts.set_sync(false);
+    write_opts.set_disable_wal(true);
+    wb.write_opt(&write_opts)?;
     box_try!(engines.raft.consume(&mut raft_wb, true));
     Ok(())
 }
@@ -140,7 +143,7 @@ mod tests {
         )
         .unwrap();
         let raft_engine =
-            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, CF_DEFAULT, None)
+            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, ALL_CFS, None)
                 .unwrap();
         let engines = Engines::new(kv_engine.clone(), raft_engine.clone());
         let region = initial_region(1, 1, 1);

@@ -512,8 +512,10 @@ fn init_apply_state<EK: KvEngine, ER: RaftEngine>(
 ) -> Result<RaftApplyState> {
     Ok(
         match engines
-            .raft
-            .get_raft_apply_state(region.get_id())?
+//            .raft
+        //            .get_raft_apply_state(region.get_id())?
+            .kv
+            .get_msg_cf(CF_RAFT, &keys::apply_state_key(region.get_id()))?
         {
             Some(s) => s,
             None => {
@@ -1227,9 +1229,9 @@ where
         }
         // Write its source peers' `RegionLocalState` together with itself for atomicity
         for r in destroy_regions {
-            write_peer_state(raft_wb, r, PeerState::Tombstone, None)?;
+            write_peer_state(kv_wb, raft_wb, r, PeerState::Tombstone, None)?;
         }
-        write_peer_state(raft_wb, &region, PeerState::Applying, None)?;
+        write_peer_state(kv_wb, raft_wb, &region, PeerState::Applying, None)?;
 
         let last_index = snap.get_metadata().get_index();
 
@@ -1718,7 +1720,11 @@ pub fn write_initial_raft_state<W: RaftLogBatch>(raft_wb: &mut W, region_id: u64
 
 // When we bootstrap the region or handling split new region, we must
 // call this to initialize region apply state first.
-pub fn write_initial_apply_state<T: RaftLogBatch>(raft_wb: &mut T, region_id: u64) -> Result<()> {
+pub fn write_initial_apply_state<T: Mutable, RB: RaftLogBatch>(
+    kv_wb: &mut T,
+    raft_wb: &mut RB,
+    region_id: u64
+) -> Result<()> {
     let mut apply_state = RaftApplyState::default();
     apply_state.set_applied_index(RAFT_INIT_LOG_INDEX);
     apply_state
@@ -1728,11 +1734,13 @@ pub fn write_initial_apply_state<T: RaftLogBatch>(raft_wb: &mut T, region_id: u6
         .mut_truncated_state()
         .set_term(RAFT_INIT_LOG_TERM);
 
+    kv_wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(region_id), &apply_state)?;
     raft_wb.put_raft_apply_state(region_id, &apply_state)?;
     Ok(())
 }
 
-pub fn write_peer_state<T: RaftLogBatch>(
+pub fn write_peer_state<T: RaftLogBatch, Q: Mutable>(
+    kv_wb: &mut Q,
     raft_wb: &mut T,
     region: &metapb::Region,
     state: PeerState,
@@ -1751,6 +1759,7 @@ pub fn write_peer_state<T: RaftLogBatch>(
         "region_id" => region_id,
         "state" => ?region_state,
     );
+    kv_wb.put_msg_cf(CF_RAFT, &keys::region_state_key(region_id), &region_state)?;
     raft_wb.put_raft_region_state(region_id, &region_state)?;
     Ok(())
 }
@@ -1832,7 +1841,7 @@ mod tests {
             .unwrap();
         let raft_path = path.path().join(Path::new("raft"));
         let raft_db =
-            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, CF_DEFAULT, None)
+            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, ALL_CFS, None)
                 .unwrap();
         let engines = Engines::new(kv_db, raft_db);
         bootstrap_store(&engines, 1, 1).unwrap();
@@ -2670,7 +2679,7 @@ mod tests {
             engine_test::kv::new_engine(td.path().to_str().unwrap(), None, ALL_CFS, None).unwrap();
         let raft_path = td.path().join(Path::new("raft"));
         let raft_db =
-            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, CF_DEFAULT, None)
+            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, ALL_CFS, None)
                 .unwrap();
         let engines = Engines::new(kv_db, raft_db);
         bootstrap_store(&engines, 1, 1).unwrap();

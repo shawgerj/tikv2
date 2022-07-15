@@ -63,7 +63,7 @@ fn start_raftstore(
 ) -> (
     ConfigController,
     RaftRouter<RocksEngine, RocksEngine>,
-    ApplyRouter<RocksEngine>,
+    ApplyRouter<RocksEngine, RocksEngine>,
     RaftBatchSystem<RocksEngine, RocksEngine>,
 ) {
     let (raft_router, mut system) = create_raft_batch_system(&cfg.raft_store);

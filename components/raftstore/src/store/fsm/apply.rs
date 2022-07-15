@@ -481,7 +481,7 @@ where
     /// This call is valid only when it's between a `prepare_for` and `finish_for`.
     pub fn commit(&mut self, delegate: &mut ApplyDelegate<EK, ER>) {
         if delegate.last_flush_applied_index < delegate.apply_state.get_applied_index() {
-            delegate.write_apply_state(self.r_wb_mut());
+            delegate.write_apply_state(&mut self.kv_wb, &mut self.r_wb);
         }
         self.commit_opt(delegate, true);
     }
@@ -593,7 +593,7 @@ where
         results: VecDeque<ExecResult<EK::Snapshot>>,
     ) {
         if !delegate.pending_remove {
-            delegate.write_apply_state(self.r_wb_mut());
+            delegate.write_apply_state(&mut self.kv_wb, &mut self.r_wb);
         }
         self.commit_opt(delegate, false);
         self.apply_res.push(ApplyRes {
@@ -623,11 +623,10 @@ where
         &mut self.kv_wb
     }
 
-    #[inline]
-    pub fn r_wb_mut(&mut self) -> &mut ER::LogBatch {
-        &mut self.r_wb
-    }
-
+    // #[inline]
+    // pub fn r_wb_mut(&mut self) -> &mut ER::LogBatch {
+    //     &mut self.r_wb
+    // }
     
     /// Flush all pending writes to engines.
     /// If it returns true, all pending writes are persisted in engines.
@@ -1040,11 +1039,25 @@ where
         self.metrics.written_keys += apply_ctx.delta_keys();
     }
 
-    fn write_apply_state(&self, wb: &mut ER::LogBatch) {
-        wb.put_raft_apply_state(self.region.get_id(), &self.apply_state)
+    fn write_apply_state(&self, kv_rb: &mut EK::WriteBatch, r_wb: &mut ER::LogBatch) {
+        // write to kv-store
+        kv_rb.put_msg_cf(
+            CF_RAFT,
+            &keys::apply_state_key(self.region.get_id()),
+            &self.apply_state,
+        )
         .unwrap_or_else(|e| {
             panic!(
-                "{} failed to save apply state to write batch, error: {:?}",
+                "{} failed to save apply state to kv write batch, error: {:?}",
+                self.tag, e
+            );
+        });
+
+        // write to raft-store
+        r_wb.put_raft_apply_state(self.region.get_id(), &self.apply_state)
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} failed to save apply state to raft log batch, error: {:?}",
                 self.tag, e
             );
         });
@@ -1938,7 +1951,7 @@ where
         } else {
             PeerState::Normal
         };
-        if let Err(e) = write_peer_state(ctx.r_wb_mut(), &region, state, None) {
+        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -1983,7 +1996,7 @@ where
             PeerState::Normal
         };
 
-        if let Err(e) = write_peer_state(ctx.r_wb_mut(), &region, state, None) {
+        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -2369,7 +2382,6 @@ where
             }
         }
 
-        let raft_wb_mut = ctx.r_wb_mut();
         for new_region in &regions {
             if new_region.get_id() == derived.get_id() {
                 continue;
@@ -2386,8 +2398,8 @@ where
                 );
                 continue;
             }
-            write_peer_state(raft_wb_mut, new_region, PeerState::Normal, None)
-                .and_then(|_| write_initial_apply_state(raft_wb_mut, new_region.get_id()))
+            write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, new_region, PeerState::Normal, None)
+                .and_then(|_| write_initial_apply_state(&mut ctx.kv_wb, &mut ctx.r_wb, new_region.get_id()))
                 .unwrap_or_else(|e| {
                     panic!(
                         "{} fails to save split region {:?}: {:?}",
@@ -2395,7 +2407,7 @@ where
                     )
                 });
         }
-        write_peer_state(raft_wb_mut, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!("{} fails to update region {:?}: {:?}", self.tag, derived, e)
         });
         let mut resp = AdminResponse::default();
@@ -2457,8 +2469,10 @@ where
         merging_state.set_min_index(index);
         merging_state.set_target(prepare_merge.get_target().to_owned());
         merging_state.set_commit(ctx.exec_log_index);
+        
         write_peer_state(
-            ctx.r_wb_mut(),
+            &mut ctx.kv_wb,
+            &mut ctx.r_wb,
             &region,
             PeerState::Merging,
             Some(merging_state.clone()),
@@ -2594,14 +2608,14 @@ where
         } else {
             region.set_start_key(source_region.get_start_key().to_vec());
         }
-        let raft_wb_mut = ctx.r_wb_mut();
-        write_peer_state(raft_wb_mut, &region, PeerState::Normal, None)
+        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, PeerState::Normal, None)
             .and_then(|_| {
                 // TODO: maybe all information needs to be filled?
                 let mut merging_state = MergeState::default();
                 merging_state.set_target(self.region.clone());
                 write_peer_state(
-                    raft_wb_mut,
+                    &mut ctx.kv_wb,
+                    &mut ctx.r_wb,
                     source_region,
                     PeerState::Tombstone,
                     Some(merging_state),
@@ -2652,7 +2666,7 @@ where
         let version = region.get_region_epoch().get_version();
         // Update version to avoid duplicated rollback requests.
         region.mut_region_epoch().set_version(version + 1);
-        write_peer_state(ctx.r_wb_mut(), &region, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!(
                 "{} failed to rollback merge {:?}: {:?}",
                 self.tag, rollback, e
@@ -3491,7 +3505,8 @@ where
             if apply_ctx.timer.is_none() {
                 apply_ctx.timer = Some(Instant::now_coarse());
             }
-            self.delegate.write_apply_state(apply_ctx.r_wb_mut());
+            self.delegate.write_apply_state(&mut apply_ctx.kv_wb,
+                                            &mut apply_ctx.r_wb);
             fail_point!(
                 "apply_on_handle_snapshot_1_1",
                 self.delegate.id == 1 && self.delegate.region_id() == 1,
@@ -4230,8 +4245,9 @@ mod tests {
     use crate::store::peer_storage::RAFT_INIT_LOG_INDEX;
     use crate::store::util::{new_learner_peer, new_peer};
     use engine_panic::PanicEngine;
-    use engine_test::kv::{new_engine, KvTestEngine, KvTestSnapshot, KvTestWriteBatch, RaftTestEngine};
-    use engine_traits::{Peekable as PeekableTrait, WriteBatchExt};
+    use engine_test::kv::{KvTestEngine, KvTestSnapshot, KvTestWriteBatch};
+    use engine_test::raft::RaftTestEngine;
+    use engine_traits::{Engines, Peekable as PeekableTrait, WriteBatchExt};
     use kvproto::metapb::{self, RegionEpoch};
     use kvproto::raft_cmdpb::*;
     use protobuf::Message;
@@ -4254,16 +4270,22 @@ mod tests {
         }
     }
 
-    pub fn create_tmp_engine(path: &str) -> (TempDir, KvTestEngine) {
+    pub fn create_tmp_engines(path: &str) -> (TempDir, Engines<KvTestEngine, RaftTestEngine>) {
         let path = Builder::new().prefix(path).tempdir().unwrap();
-        let engine = new_engine(
+        let kv_engine = engine_test::kv::new_engine(
             path.path().join("db").to_str().unwrap(),
             None,
             ALL_CFS,
             None,
-        )
-        .unwrap();
-        (path, engine)
+        ).unwrap();
+        let raft_engine = engine_test::raft::new_engine(
+            path.path().join("raft").to_str().unwrap(),
+            None,
+            ALL_CFS,
+            None,
+        ).unwrap();
+        let engines = Engines::new(kv_engine, raft_engine);
+        (path, engines)
     }
 
     pub fn create_tmp_importer(path: &str) -> (TempDir, Arc<SSTImporter>) {
@@ -4409,6 +4431,7 @@ mod tests {
     where
         F: FnOnce(&ApplyDelegate<E, D>) + Send + 'static,
         E: KvEngine,
+        D: RaftEngine,
     {
         let (validate_tx, validate_rx) = mpsc::channel();
         router.schedule_task(
@@ -4429,6 +4452,7 @@ mod tests {
     fn batch_messages<E, D>(router: &ApplyRouter<E, D>, region_id: u64, msgs: Vec<Msg<E>>)
     where
         E: KvEngine,
+        D: RaftEngine,
     {
         let (notify1, wait1) = mpsc::channel();
         let (notify2, wait2) = mpsc::channel();
@@ -4508,20 +4532,20 @@ mod tests {
     fn test_basic_flow() {
         let (tx, rx) = mpsc::channel();
         let sender = Box::new(TestNotifier { tx });
-        let (_tmp, engine) = create_tmp_engine("apply-basic");
+        let (_tmp, engines) = create_tmp_engines("apply-basic");
         let (_dir, importer) = create_tmp_importer("apply-basic");
         let (region_scheduler, mut snapshot_rx) = dummy_scheduler();
         let cfg = Arc::new(VersionTrack::new(Config::default()));
         let (router, mut system) = create_apply_batch_system(&cfg.value());
         let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
-        let builder = super::Builder::<KvTestEngine, KvTestWriteBatch> {
+        let builder = super::Builder::<KvTestEngine, RaftTestEngine> {
             tag: "test-store".to_owned(),
             cfg,
             coprocessor_host: CoprocessorHost::<KvTestEngine>::default(),
             importer,
             region_scheduler,
             sender,
-            engine,
+            engines,
             router: router.clone(),
             _phantom: Default::default(),
             store_id: 1,
@@ -4837,7 +4861,7 @@ mod tests {
 
     #[test]
     fn test_handle_raft_committed_entries() {
-        let (_path, engine) = create_tmp_engine("test-delegate");
+        let (_path, engines) = create_tmp_engines("test-delegate");
         let (import_dir, importer) = create_tmp_importer("test-delegate");
         let obs = ApplyObserver::default();
         let mut host = CoprocessorHost::<KvTestEngine>::default();
@@ -4850,14 +4874,14 @@ mod tests {
         let cfg = Arc::new(VersionTrack::new(Config::default()));
         let (router, mut system) = create_apply_batch_system(&cfg.value());
         let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
-        let builder = super::Builder::<KvTestEngine, KvTestWriteBatch> {
+        let builder = super::Builder::<KvTestEngine, RaftTestEngine> {
             tag: "test-store".to_owned(),
             cfg,
             sender,
             region_scheduler,
             coprocessor_host: host,
             importer: importer.clone(),
-            engine: engine.clone(),
+            engines: engines.clone(),
             router: router.clone(),
             _phantom: Default::default(),
             store_id: 1,
@@ -4899,9 +4923,9 @@ mod tests {
         let dk_k1 = keys::data_key(b"k1");
         let dk_k2 = keys::data_key(b"k2");
         let dk_k3 = keys::data_key(b"k3");
-        assert_eq!(engine.get_value(&dk_k1).unwrap().unwrap(), b"v1");
-        assert_eq!(engine.get_value(&dk_k2).unwrap().unwrap(), b"v1");
-        assert_eq!(engine.get_value(&dk_k3).unwrap().unwrap(), b"v1");
+        assert_eq!(engines.kv.get_value(&dk_k1).unwrap().unwrap(), b"v1");
+        assert_eq!(engines.kv.get_value(&dk_k2).unwrap().unwrap(), b"v1");
+        assert_eq!(engines.kv.get_value(&dk_k3).unwrap().unwrap(), b"v1");
         validate(&router, 1, |delegate| {
             assert_eq!(delegate.applied_index_term, 1);
             assert_eq!(delegate.apply_state.get_applied_index(), 1);
@@ -4923,7 +4947,7 @@ mod tests {
         assert_eq!(apply_res.metrics.size_diff_hint, 5);
         assert_eq!(apply_res.metrics.lock_cf_written_bytes, 5);
         assert_eq!(
-            engine.get_value_cf(CF_LOCK, &dk_k1).unwrap().unwrap(),
+            engines.kv.get_value_cf(CF_LOCK, &dk_k1).unwrap().unwrap(),
             b"v1"
         );
 
@@ -4968,7 +4992,7 @@ mod tests {
         assert_eq!(apply_res.applied_index_term, 2);
         assert_eq!(apply_res.apply_state.get_applied_index(), 4);
         // a writebatch should be atomic.
-        assert_eq!(engine.get_value(&dk_k3).unwrap().unwrap(), b"v1");
+        assert_eq!(engines.kv.get_value(&dk_k3).unwrap().unwrap(), b"v1");
 
         let put_entry = EntryBuilder::new(5, 3)
             .delete(b"k1")
@@ -4991,7 +5015,7 @@ mod tests {
         assert!(resp.get_header().get_error().has_stale_command());
         let resp = capture_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(!resp.get_header().has_error(), "{:?}", resp);
-        assert!(engine.get_value(&dk_k1).unwrap().is_none());
+        assert!(engines.kv.get_value(&dk_k1).unwrap().is_none());
         let apply_res = fetch_apply_res(&rx);
         assert_eq!(apply_res.metrics.lock_cf_written_bytes, 3);
         assert_eq!(apply_res.metrics.delete_keys_hint, 2);
@@ -5028,7 +5052,7 @@ mod tests {
         );
         let resp = capture_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(resp.get_header().get_error().has_key_not_in_region());
-        assert_eq!(engine.get_value(&dk_k3).unwrap().unwrap(), b"v1");
+        assert_eq!(engines.kv.get_value(&dk_k3).unwrap().unwrap(), b"v1");
         fetch_apply_res(&rx);
 
         let delete_range_entry = EntryBuilder::new(8, 3)
@@ -5049,9 +5073,9 @@ mod tests {
         );
         let resp = capture_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(!resp.get_header().has_error(), "{:?}", resp);
-        assert!(engine.get_value(&dk_k1).unwrap().is_none());
-        assert!(engine.get_value(&dk_k2).unwrap().is_none());
-        assert!(engine.get_value(&dk_k3).unwrap().is_none());
+        assert!(engines.kv.get_value(&dk_k1).unwrap().is_none());
+        assert!(engines.kv.get_value(&dk_k2).unwrap().is_none());
+        assert!(engines.kv.get_value(&dk_k3).unwrap().is_none());
 
         // The region was rescheduled from normal-priority handler to
         // low-priority handler, so the first apple_res.exec_res should be empty.
@@ -5125,7 +5149,7 @@ mod tests {
         assert!(!resp.get_header().has_error(), "{:?}", resp);
         let resp = capture_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(!resp.get_header().has_error(), "{:?}", resp);
-        check_db_range(&engine, sst_range);
+        check_db_range(&engines.kv, sst_range);
         let resp = capture_rx.recv_timeout(Duration::from_secs(3)).unwrap();
         assert!(resp.get_header().has_error());
 
@@ -5176,7 +5200,7 @@ mod tests {
 
     #[test]
     fn test_handle_ingest_sst() {
-        let (_path, engine) = create_tmp_engine("test-ingest");
+        let (_path, engines) = create_tmp_engines("test-ingest");
         let (import_dir, importer) = create_tmp_importer("test-ingest");
         let obs = ApplyObserver::default();
         let mut host = CoprocessorHost::<KvTestEngine>::default();
@@ -5194,14 +5218,14 @@ mod tests {
         };
         let (router, mut system) = create_apply_batch_system(&cfg.value());
         let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
-        let builder = super::Builder::<KvTestEngine, KvTestWriteBatch> {
+        let builder = super::Builder::<KvTestEngine, RaftTestEngine> {
             tag: "test-store".to_owned(),
             cfg,
             sender,
             region_scheduler,
             coprocessor_host: host,
             importer: importer.clone(),
-            engine: engine.clone(),
+            engines: engines.clone(),
             router: router.clone(),
             _phantom: Default::default(),
             store_id: 1,
@@ -5350,13 +5374,13 @@ mod tests {
         // Verify the engine keys.
         for i in 1..keys_count {
             let dk = keys::data_key(&keys[i]);
-            assert_eq!(engine.get_value(&dk).unwrap().unwrap(), &expected_vals[i]);
+            assert_eq!(engines.kv.get_value(&dk).unwrap().unwrap(), &expected_vals[i]);
         }
     }
 
     #[test]
     fn test_cmd_observer() {
-        let (_path, engine) = create_tmp_engine("test-delegate");
+        let (_path, engines) = create_tmp_engines("test-delegate");
         let (_import_dir, importer) = create_tmp_importer("test-delegate");
         let mut host = CoprocessorHost::<KvTestEngine>::default();
         let mut obs = ApplyObserver::default();
@@ -5371,14 +5395,14 @@ mod tests {
         let cfg = Config::default();
         let (router, mut system) = create_apply_batch_system(&cfg);
         let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
-        let builder = super::Builder::<KvTestEngine, KvTestWriteBatch> {
+        let builder = super::Builder::<KvTestEngine, RaftTestEngine> {
             tag: "test-store".to_owned(),
             cfg: Arc::new(VersionTrack::new(cfg)),
             sender,
             region_scheduler,
             coprocessor_host: host,
             importer,
-            engine,
+            engines,
             router: router.clone(),
             _phantom: Default::default(),
             store_id: 1,
@@ -5634,7 +5658,7 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let (_path, engine) = create_tmp_engine("test-delegate");
+        let (_path, engines) = create_tmp_engines("test-delegate");
         let (_import_dir, importer) = create_tmp_importer("test-delegate");
         let peer_id = 3;
         let mut reg = Registration {
@@ -5660,14 +5684,14 @@ mod tests {
         let cfg = Arc::new(VersionTrack::new(Config::default()));
         let (router, mut system) = create_apply_batch_system(&cfg.value());
         let pending_create_peers = Arc::new(Mutex::new(HashMap::default()));
-        let builder = super::Builder::<KvTestEngine, KvTestWriteBatch> {
+        let builder = super::Builder::<KvTestEngine, RaftTestEngine> {
             tag: "test-store".to_owned(),
             cfg,
             sender,
             importer,
             region_scheduler,
             coprocessor_host: host,
-            engine: engine.clone(),
+            engines: engines.clone(),
             router: router.clone(),
             _phantom: Default::default(),
             store_id: 2,
@@ -5770,7 +5794,7 @@ mod tests {
         // All requests should be checked.
         assert!(error_msg(&resp).contains("id count"), "{:?}", resp);
         let checker = SplitResultChecker {
-            engine,
+            engine: engines.kv,
             origin_peers: &peers,
             epoch: epoch.clone(),
         };
