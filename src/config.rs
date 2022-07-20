@@ -898,6 +898,8 @@ impl TitanDBConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct DbConfig {
     #[online_config(skip)]
+    pub manual_wal_flush: bool,
+    #[online_config(skip)]
     pub fail_on_write: bool,
     #[online_config(skip)]
     pub info_log_level: LogLevel,
@@ -976,6 +978,7 @@ impl Default for DbConfig {
             ..Default::default()
         };
         DbConfig {
+            manual_wal_flush: false,
             fail_on_write: false,
             wal_recovery_mode: DBRecoveryMode::PointInTime,
             wal_dir: "".to_owned(),

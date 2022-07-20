@@ -141,6 +141,7 @@ pub fn new_tikv_config(cluster_id: u64, fault: bool) -> TiKvConfig {
     cfg.server.cluster_id = cluster_id;
     if fault {
         cfg.rocksdb.fail_on_write = true;
+        cfg.rocksdb.manual_wal_flush = true;
     }  
     cfg
 }
