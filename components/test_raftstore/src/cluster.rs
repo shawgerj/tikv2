@@ -168,7 +168,35 @@ impl<T: Simulator> Cluster<T> {
         // TODO: In the future, maybe it's better to test both case where `use_delete_range` is true and false
         Cluster {
             cfg: Config {
-                tikv: new_tikv_config(id),
+                tikv: new_tikv_config(id, false),
+                prefer_mem: true,
+            },
+            leaders: HashMap::default(),
+            count,
+            paths: vec![],
+            dbs: vec![],
+            store_metas: HashMap::default(),
+            key_managers: vec![],
+            io_rate_limiter: None,
+            engines: HashMap::default(),
+            key_managers_map: HashMap::default(),
+            labels: HashMap::default(),
+            group_props: HashMap::default(),
+            sim,
+            pd_client,
+        }
+    }
+
+    // shawgerj: same as Cluster::new() but use special fault environment
+    pub fn new_fault(
+        id: u64,
+        count: usize,
+        sim: Arc<RwLock<T>>,
+        pd_client: Arc<TestPdClient>,
+    ) -> Cluster<T> {
+        Cluster {
+            cfg: Config {
+                tikv: new_tikv_config(id, true),
                 prefer_mem: true,
             },
             leaders: HashMap::default(),

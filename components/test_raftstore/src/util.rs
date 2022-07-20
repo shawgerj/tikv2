@@ -136,9 +136,12 @@ lazy_static! {
     };
 }
 
-pub fn new_tikv_config(cluster_id: u64) -> TiKvConfig {
+pub fn new_tikv_config(cluster_id: u64, fault: bool) -> TiKvConfig {
     let mut cfg = TEST_CONFIG.clone();
     cfg.server.cluster_id = cluster_id;
+    if fault {
+        cfg.rocksdb.fail_on_write = true;
+    }  
     cfg
 }
 

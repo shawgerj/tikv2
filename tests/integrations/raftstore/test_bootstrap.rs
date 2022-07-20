@@ -39,7 +39,7 @@ fn test_bootstrap_idempotent<T: Simulator>(cluster: &mut Cluster<T>) {
 fn test_node_bootstrap_with_prepared_data() {
     // create a node
     let pd_client = Arc::new(TestPdClient::new(0, false));
-    let cfg = new_tikv_config(0);
+    let cfg = new_tikv_config(0, false);
 
     let (_, system) = fsm::create_raft_batch_system(&cfg.raft_store);
     let simulate_trans = SimulateTransport::new(ChannelTransport::new());

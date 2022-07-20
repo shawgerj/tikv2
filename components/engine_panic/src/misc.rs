@@ -12,6 +12,10 @@ impl MiscExt for PanicEngine {
         panic!()
     }
 
+    fn flush_wal(&self, sync: bool) -> Result<()> {
+        panic!()
+    }
+
     fn delete_ranges_cf(&self, cf: &str, strategy: DeleteStrategy, ranges: &[Range]) -> Result<()> {
         panic!()
     }

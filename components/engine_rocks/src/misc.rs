@@ -136,6 +136,10 @@ impl MiscExt for RocksEngine {
         Ok(self.as_inner().flush_cf(handle, sync)?)
     }
 
+    fn flush_wal(&self, sync: bool) -> Result<()> {
+        Ok(self.as_inner().flush_wal(sync)?)
+    }
+
     fn delete_ranges_cf(&self, cf: &str, strategy: DeleteStrategy, ranges: &[Range]) -> Result<()> {
         if ranges.is_empty() {
             return Ok(());
