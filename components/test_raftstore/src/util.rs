@@ -677,6 +677,58 @@ pub fn create_test_engine(
     (engines, key_manager, dir)
 }
 
+pub fn create_test_engine_with_path(
+    // TODO: pass it in for all cases.
+    dir: &TempDir,
+    limiter: Option<Arc<IORateLimiter>>,
+    cfg: &Config,
+) -> (
+    Engines<RocksEngine, RocksEngine>,
+    Option<Arc<DataKeyManager>>,
+) {
+    let key_manager =
+        data_key_manager_from_config(&cfg.security.encryption, dir.path().to_str().unwrap())
+            .unwrap()
+            .map(Arc::new);
+
+    let env = get_env(key_manager.clone(), limiter).unwrap();
+    let cache = cfg.storage.block_cache.build_shared_cache();
+
+    let kv_path = dir.path().join(DEFAULT_ROCKSDB_SUB_DIR);
+    let kv_path_str = kv_path.to_str().unwrap();
+
+    let mut kv_db_opt = cfg.rocksdb.build_opt();
+    kv_db_opt.set_env(env.clone());
+
+    let kv_cfs_opt = cfg
+        .rocksdb
+        .build_cf_opts(&cache, None, cfg.storage.enable_ttl);
+
+    let engine = Arc::new(
+        engine_rocks::raw_util::new_engine_opt(kv_path_str, kv_db_opt, kv_cfs_opt).unwrap(),
+    );
+
+    let raft_path = dir.path().join("raft");
+    let raft_path_str = raft_path.to_str().unwrap();
+
+    let mut raft_db_opt = cfg.raftdb.build_opt();
+    raft_db_opt.set_env(env);
+
+    let raft_cfs_opt = cfg.raftdb.build_cf_opts(&cache);
+    let raft_engine = Arc::new(
+        engine_rocks::raw_util::new_engine_opt(raft_path_str, raft_db_opt, raft_cfs_opt).unwrap(),
+    );
+
+    let mut engine = RocksEngine::from_db(engine);
+    let mut raft_engine = RocksEngine::from_db(raft_engine);
+    let shared_block_cache = cache.is_some();
+    engine.set_shared_block_cache(shared_block_cache);
+    raft_engine.set_shared_block_cache(shared_block_cache);
+    let engines = Engines::new(engine, raft_engine);
+    (engines, key_manager)
+}
+
+
 pub fn configure_for_request_snapshot<T: Simulator>(cluster: &mut Cluster<T>) {
     // We don't want to generate snapshots due to compact log.
     cluster.cfg.raft_store.raft_log_gc_threshold = 1000;

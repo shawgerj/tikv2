@@ -97,6 +97,8 @@ max-background-gc = 1
 
 [raftdb.defaultcf]
 
+[raftdb.raftcf]
+
 [raftdb.defaultcf.titan]
 
 [security]

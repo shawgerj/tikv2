@@ -1256,6 +1256,8 @@ pub struct RaftDbConfig {
     pub wal_bytes_per_sync: ReadableSize,
     #[online_config(submodule)]
     pub defaultcf: RaftDefaultCfConfig,
+    #[online_config(submodule)]
+    pub raftcf: RaftCfConfig,
     #[online_config(skip)]
     pub titan: TitanDBConfig,
 }
@@ -1295,6 +1297,7 @@ impl Default for RaftDbConfig {
             bytes_per_sync: ReadableSize::mb(1),
             wal_bytes_per_sync: ReadableSize::kb(512),
             defaultcf: RaftDefaultCfConfig::default(),
+            raftcf: RaftCfConfig::default(),
             titan: titan_config,
         }
     }
@@ -1344,7 +1347,8 @@ impl RaftDbConfig {
     }
 
     pub fn build_cf_opts(&self, cache: &Option<Cache>) -> Vec<CFOptions<'_>> {
-        vec![CFOptions::new(CF_DEFAULT, self.defaultcf.build_opt(cache))]
+        vec![CFOptions::new(CF_DEFAULT, self.defaultcf.build_opt(cache)),
+             CFOptions::new(CF_RAFT, self.raftcf.build_opt(cache))]
     }
 
     fn validate(&mut self) -> Result<(), Box<dyn Error>> {

@@ -353,11 +353,19 @@ impl Simulator for NodeCluster {
         if let Some(mut node) = self.nodes.remove(&node_id) {
             node.stop();
         }
+        self.simulate_trans.remove(&node_id).unwrap();
         self.trans
             .core
             .lock()
             .unwrap()
             .routers
+            .remove(&node_id)
+            .unwrap();
+        self.trans
+            .core
+            .lock()
+            .unwrap()
+            .snap_paths
             .remove(&node_id)
             .unwrap();
     }

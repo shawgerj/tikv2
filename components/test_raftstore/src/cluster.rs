@@ -5,6 +5,7 @@ use std::error::Error as StdError;
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use std::{result, thread};
+use std::convert::TryInto;
 
 use crossbeam::channel::TrySendError;
 use futures::executor::block_on;
@@ -94,7 +95,7 @@ pub trait Simulator {
         let node_id = request.get_header().get_peer().get_store_id();
         self.call_command_on_node(node_id, request, timeout)
     }
-
+    
     fn read(
         &self,
         batch_id: Option<ThreadReadId>,
@@ -235,6 +236,35 @@ impl<T: Simulator> Cluster<T> {
         }
     }
 
+    pub fn reboot_engine(&mut self, engine_id: u64) {
+        let i: usize = (engine_id - 1).try_into().unwrap();
+        // remove engine from dbs vec, engines hashmap, and key manager
+        {
+        let engines = self.engines.remove(&engine_id);
+        self.dbs.remove(i);
+        self.key_managers.remove(i);
+            if let Some(engines) = engines {
+                // TODO: figure out why there is a race here... 
+                sleep_ms(5000);
+
+                drop(engines.kv);
+                drop(engines.raft);
+            }
+        }
+
+        sleep_ms(500);
+        
+        let (engines, key_manager) =
+            create_test_engine_with_path(&self.paths[i],
+                                         self.io_rate_limiter.clone(),
+                                         &self.cfg);
+
+        // insert the engine back into dbs vec and engines hashmap
+        self.dbs.insert(i, engines);
+        self.key_managers.insert(i, key_manager);
+        self.engines.insert(engine_id, self.dbs[i].clone());
+    }
+
     pub fn start(&mut self) -> ServerResult<()> {
         // Try recover from last shutdown.
         let node_ids: Vec<u64> = self.engines.iter().map(|(&id, _)| id).collect();
@@ -268,7 +298,7 @@ impl<T: Simulator> Cluster<T> {
             self.engines.insert(node_id, engines);
             self.store_metas.insert(node_id, store_meta);
             self.key_managers_map.insert(node_id, key_mgr);
-        }
+        } 
         Ok(())
     }
 
