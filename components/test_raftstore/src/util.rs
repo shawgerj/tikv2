@@ -11,9 +11,9 @@ use encryption_export::{
     data_key_manager_from_config, DataKeyManager, FileConfig, MasterKeyConfig,
 };
 use engine_rocks::config::BlobRunMode;
-use engine_rocks::raw::DB;
+use engine_rocks::raw::{DB, Env};
 use engine_rocks::{
-    get_env, CompactionListener, Compat, RocksCompactionJobInfo, RocksEngine, RocksSnapshot,
+    get_env, get_fault_injection_env, CompactionListener, Compat, RocksCompactionJobInfo, RocksEngine, RocksSnapshot,
 };
 use engine_traits::{Engines, Iterable, Peekable, ALL_CFS, CF_DEFAULT, CF_RAFT};
 use file_system::IORateLimiter;
@@ -618,10 +618,12 @@ pub fn create_test_engine(
     router: Option<RaftRouter<RocksEngine, RocksEngine>>,
     limiter: Option<Arc<IORateLimiter>>,
     cfg: &Config,
+    fault: bool,
 ) -> (
     Engines<RocksEngine, RocksEngine>,
     Option<Arc<DataKeyManager>>,
     TempDir,
+    Arc<Env>,
 ) {
     let dir = test_util::temp_dir("test_cluster", cfg.prefer_mem);
     let key_manager =
@@ -629,13 +631,18 @@ pub fn create_test_engine(
             .unwrap()
             .map(Arc::new);
 
-    let env = get_env(key_manager.clone(), limiter).unwrap();
     let cache = cfg.storage.block_cache.build_shared_cache();
 
     let kv_path = dir.path().join(DEFAULT_ROCKSDB_SUB_DIR);
     let kv_path_str = kv_path.to_str().unwrap();
-
     let mut kv_db_opt = cfg.rocksdb.build_opt();
+    
+    let env:Arc<Env>;    
+    if fault {
+        env = get_fault_injection_env().unwrap();
+    } else {
+        env = get_env(key_manager.clone(), limiter.clone()).unwrap();
+    }
     kv_db_opt.set_env(env.clone());
 
     if let Some(router) = router {
@@ -665,7 +672,8 @@ pub fn create_test_engine(
     let raft_path_str = raft_path.to_str().unwrap();
 
     let mut raft_db_opt = cfg.raftdb.build_opt();
-    raft_db_opt.set_env(env);
+    let raft_env = get_env(key_manager.clone(), limiter).unwrap();
+    raft_db_opt.set_env(raft_env);
 
     let raft_cfs_opt = cfg.raftdb.build_cf_opts(&cache);
     let raft_engine = Arc::new(
@@ -678,7 +686,7 @@ pub fn create_test_engine(
     engine.set_shared_block_cache(shared_block_cache);
     raft_engine.set_shared_block_cache(shared_block_cache);
     let engines = Engines::new(engine, raft_engine);
-    (engines, key_manager, dir)
+    (engines, key_manager, dir, env)
 }
 
 pub fn create_test_engine_with_path(
@@ -686,22 +694,30 @@ pub fn create_test_engine_with_path(
     dir: &TempDir,
     limiter: Option<Arc<IORateLimiter>>,
     cfg: &Config,
+    fault: bool,
 ) -> (
     Engines<RocksEngine, RocksEngine>,
     Option<Arc<DataKeyManager>>,
+    Arc<Env>,
 ) {
     let key_manager =
         data_key_manager_from_config(&cfg.security.encryption, dir.path().to_str().unwrap())
             .unwrap()
             .map(Arc::new);
 
-    let env = get_env(key_manager.clone(), limiter).unwrap();
     let cache = cfg.storage.block_cache.build_shared_cache();
 
     let kv_path = dir.path().join(DEFAULT_ROCKSDB_SUB_DIR);
     let kv_path_str = kv_path.to_str().unwrap();
 
     let mut kv_db_opt = cfg.rocksdb.build_opt();
+    
+    let env:Arc<Env>;    
+    if fault {
+        env = get_fault_injection_env().unwrap();
+    } else {
+        env = get_env(key_manager.clone(), limiter.clone()).unwrap();
+    }
     kv_db_opt.set_env(env.clone());
 
     let kv_cfs_opt = cfg
@@ -716,7 +732,8 @@ pub fn create_test_engine_with_path(
     let raft_path_str = raft_path.to_str().unwrap();
 
     let mut raft_db_opt = cfg.raftdb.build_opt();
-    raft_db_opt.set_env(env);
+    let raft_env = get_env(key_manager.clone(), limiter).unwrap();
+    raft_db_opt.set_env(raft_env);
 
     let raft_cfs_opt = cfg.raftdb.build_cf_opts(&cache);
     let raft_engine = Arc::new(
@@ -729,7 +746,7 @@ pub fn create_test_engine_with_path(
     engine.set_shared_block_cache(shared_block_cache);
     raft_engine.set_shared_block_cache(shared_block_cache);
     let engines = Engines::new(engine, raft_engine);
-    (engines, key_manager)
+    (engines, key_manager, env)
 }
 
 

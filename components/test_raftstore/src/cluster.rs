@@ -23,7 +23,7 @@ use tempfile::TempDir;
 use crate::Config;
 use collections::{HashMap, HashSet};
 use encryption_export::DataKeyManager;
-use engine_rocks::raw::DB;
+use engine_rocks::raw::{DB, Env};
 use engine_rocks::{Compat, RocksEngine, RocksSnapshot};
 use engine_traits::{
     CompactExt, Engines, Iterable, MiscExt, Mutable, Peekable, WriteBatch, WriteBatchExt,
@@ -145,6 +145,7 @@ pub struct Cluster<T: Simulator> {
 
     pub paths: Vec<TempDir>,
     pub dbs: Vec<Engines<RocksEngine, RocksEngine>>,
+    pub kv_envs: Vec<Arc<Env>>,
     pub store_metas: HashMap<u64, Arc<Mutex<StoreMeta>>>,
     key_managers: Vec<Option<Arc<DataKeyManager>>>,
     pub io_rate_limiter: Option<Arc<IORateLimiter>>,
@@ -155,6 +156,7 @@ pub struct Cluster<T: Simulator> {
 
     pub sim: Arc<RwLock<T>>,
     pub pd_client: Arc<TestPdClient>,
+    pub fault: bool,
 }
 
 impl<T: Simulator> Cluster<T> {
@@ -175,6 +177,7 @@ impl<T: Simulator> Cluster<T> {
             count,
             paths: vec![],
             dbs: vec![],
+            kv_envs: vec![],
             store_metas: HashMap::default(),
             key_managers: vec![],
             io_rate_limiter: None,
@@ -184,6 +187,7 @@ impl<T: Simulator> Cluster<T> {
             group_props: HashMap::default(),
             sim,
             pd_client,
+            fault: false,
         }
     }
 
@@ -203,6 +207,7 @@ impl<T: Simulator> Cluster<T> {
             count,
             paths: vec![],
             dbs: vec![],
+            kv_envs: vec![],
             store_metas: HashMap::default(),
             key_managers: vec![],
             io_rate_limiter: None,
@@ -212,6 +217,7 @@ impl<T: Simulator> Cluster<T> {
             group_props: HashMap::default(),
             sim,
             pd_client,
+            fault: true,
         }
     }
 
@@ -245,11 +251,12 @@ impl<T: Simulator> Cluster<T> {
     }
 
     fn create_engine(&mut self, router: Option<RaftRouter<RocksEngine, RocksEngine>>) {
-        let (engines, key_manager, dir) =
-            create_test_engine(router, self.io_rate_limiter.clone(), &self.cfg);
+        let (engines, key_manager, dir, kv_env) =
+            create_test_engine(router, self.io_rate_limiter.clone(), &self.cfg, self.fault);
         self.dbs.push(engines);
         self.key_managers.push(key_manager);
         self.paths.push(dir);
+        self.kv_envs.push(kv_env);
     }
 
     pub fn create_engines(&mut self) {
@@ -268,27 +275,28 @@ impl<T: Simulator> Cluster<T> {
         let i: usize = (engine_id - 1).try_into().unwrap();
         // remove engine from dbs vec, engines hashmap, and key manager
         {
-        let engines = self.engines.remove(&engine_id);
-        self.dbs.remove(i);
-        self.key_managers.remove(i);
+            let engines = self.engines.remove(&engine_id);
+            self.dbs.remove(i);
+            self.kv_envs.remove(i);
+            self.key_managers.remove(i);
             if let Some(engines) = engines {
                 // TODO: figure out why there is a race here... 
                 sleep_ms(5000);
-
+                
                 drop(engines.kv);
                 drop(engines.raft);
             }
         }
 
-        sleep_ms(500);
-        
-        let (engines, key_manager) =
+        let (engines, key_manager, kv_env) =
             create_test_engine_with_path(&self.paths[i],
                                          self.io_rate_limiter.clone(),
-                                         &self.cfg);
+                                         &self.cfg,
+                                         self.fault);
 
         // insert the engine back into dbs vec and engines hashmap
         self.dbs.insert(i, engines);
+        self.kv_envs.insert(i, kv_env);
         self.key_managers.insert(i, key_manager);
         self.engines.insert(engine_id, self.dbs[i].clone());
     }

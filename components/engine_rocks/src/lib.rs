@@ -116,3 +116,7 @@ pub fn get_env(
     let env = encryption::get_env(None /*base_env*/, key_manager)?;
     file_system::get_env(Some(env), limiter)
 }
+
+pub fn get_fault_injection_env() -> std::result::Result<std::sync::Arc<raw::Env>, String> {
+    file_system::get_fault_injection_env()
+}
