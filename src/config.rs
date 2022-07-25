@@ -1023,6 +1023,9 @@ impl Default for DbConfig {
 impl DbConfig {
     pub fn build_opt(&self) -> DBOptions {
         let mut opts = DBOptions::new();
+        // shawgerj: necessary for atomic flush of multiple column families
+        // with WAL disabled. https://github.com/facebook/rocksdb/wiki/Atomic-flush
+        opts.set_atomic_flush(true);
         opts.set_fail_on_write(self.fail_on_write);
         opts.set_wal_recovery_mode(self.wal_recovery_mode);
         if !self.wal_dir.is_empty() {
