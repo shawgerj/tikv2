@@ -20,6 +20,9 @@ impl KvEngine for PanicEngine {
     fn sync(&self) -> Result<()> {
         panic!()
     }
+    fn flush_all(&self) -> Result<()> {
+        panic!()
+    }
     fn bad_downcast<T: 'static>(&self) -> &T {
         panic!()
     }

@@ -4,11 +4,12 @@ use std::any::Any;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::convert::TryInto;
 
 use engine_traits::{
-    Error, IterOptions, Iterable, KvEngine, Peekable, ReadOptions, Result, SyncMutable,
+    Error, IterOptions, Iterable, KvEngine, Peekable, ReadOptions, Result, SyncMutable, ALL_CFS
 };
-use rocksdb::{DBIterator, Writable, DB};
+use rocksdb::{DBIterator, Writable, DB, CFHandle};
 
 use crate::db_vector::RocksDBVector;
 use crate::options::RocksReadOptions;
@@ -74,6 +75,14 @@ impl KvEngine for RocksEngine {
 
     fn sync(&self) -> Result<()> {
         self.db.sync_wal().map_err(Error::Engine)
+    }
+
+    fn flush_all(&self) -> Result<()> {
+        let cfs: Vec<&CFHandle> = ALL_CFS.iter().map(|cf| get_cf_handle(self.as_inner(), cf).unwrap()).collect();
+
+        let cfs_arr: &[&CFHandle; 4] = cfs[..].try_into().unwrap();
+        
+        self.db.flush_cfs(cfs_arr, false).map_err(Error::Engine)
     }
 
     fn flush_metrics(&self, instance: &str) {
