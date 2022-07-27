@@ -977,5 +977,5 @@ fn test_cluster_restart_failwrite() {
         
 //    cluster.stop_node(1);
 //    cluster.run_node(1).unwrap();
-    must_get_none(&cluster.get_engine(1), b"0009");
+    must_get_equal(&cluster.get_engine(1), b"0009", b"0009");
 }
