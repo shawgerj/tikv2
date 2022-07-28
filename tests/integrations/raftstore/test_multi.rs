@@ -10,8 +10,8 @@ use rand::Rng;
 use kvproto::raft_cmdpb::RaftCmdResponse;
 use raft::eraftpb::MessageType;
 
-use engine_rocks::Compat;
-use engine_traits::Peekable;
+use engine_rocks::{Compat, RocksSnapshot};
+use engine_traits::{Peekable, Mutable, KvEngine, CF_RAFT, WriteBatch, WriteBatchExt};
 use raftstore::router::RaftStoreRouter;
 use raftstore::store::*;
 use raftstore::Result;
@@ -978,4 +978,45 @@ fn test_cluster_restart_failwrite() {
 //    cluster.stop_node(1);
 //    cluster.run_node(1).unwrap();
     must_get_equal(&cluster.get_engine(1), b"0009", b"0009");
+}
+
+#[test]
+fn test_cluster_restart_reapply_raft_log() {
+    // setup and run 1-node cluster
+    let mut cluster = new_node_cluster(0, 1);
+    cluster.pd_client.disable_default_operator();
+    // So compact log will not be triggered automatically.
+    configure_for_request_snapshot(&mut cluster);
+    cluster.run();
+
+    // put k1
+    cluster.must_put(b"k1", b"v1");
+    must_get_equal(&cluster.get_engine(1), b"k1", b"v1");
+    let apply_state0 = cluster.apply_state(1, 1);
+    print!{"ApplyState0: commit: {}, apply: {}\n", apply_state0.get_commit_index(), apply_state0.get_applied_index()};
+
+    // put k2
+    cluster.must_put(b"k2", b"v2");
+    must_get_equal(&cluster.get_engine(1), b"k2", b"v2");
+    // stop node
+    cluster.stop_node(1);
+
+    // now let's undo that last put operation... 
+    // revert ApplyState
+    let mut wb = cluster.get_all_engines(1).kv.write_batch();
+    wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(1), &apply_state0).unwrap();
+    let mut write_opts = engine_traits::WriteOptions::new();
+    write_opts.set_sync(false);
+    write_opts.set_disable_wal(true);
+    wb.write_opt(&write_opts).unwrap();
+
+    // delete k2
+    must_delete(&cluster.get_engine(1), b"k2");
+    must_get_none(&cluster.get_engine(1), b"k2");
+    cluster.run_node(1).unwrap();
+    
+    sleep_ms(1000); // raftstore will just do its thing on reboot.
+    // k1 and k2 should both be present after raftstore reboot
+    must_get_equal(&cluster.get_engine(1), b"k1", b"v1");
+    must_get_equal(&cluster.get_engine(1), b"k2", b"v2");
 }

@@ -15,7 +15,7 @@ use engine_rocks::raw::{DB, Env};
 use engine_rocks::{
     get_env, get_fault_injection_env, CompactionListener, Compat, RocksCompactionJobInfo, RocksEngine, RocksSnapshot,
 };
-use engine_traits::{Engines, Iterable, Peekable, ALL_CFS, CF_DEFAULT, CF_RAFT};
+use engine_traits::{Engines, Iterable, Peekable, ALL_CFS, CF_DEFAULT, CF_RAFT, SyncMutable};
 use file_system::IORateLimiter;
 use futures::executor::block_on;
 use grpcio::{ChannelBuilder, Environment};
@@ -49,6 +49,10 @@ use crate::pd_client::PdClient;
 use crate::{Cluster, ServerCluster, Simulator, TestPdClient};
 
 pub use raftstore::store::util::{find_peer, new_learner_peer, new_peer};
+
+pub fn must_delete(engine: &Arc<DB>, key: &[u8]) {
+    engine.c().delete(&keys::data_key(key)).unwrap();
+}
 
 pub fn must_get(engine: &Arc<DB>, cf: &str, key: &[u8], value: Option<&[u8]>) {
     for _ in 1..300 {
