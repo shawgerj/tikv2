@@ -364,8 +364,6 @@ where
     kv_wb_last_bytes: u64,
     kv_wb_last_keys: u64,
 
-    r_wb: ER::LogBatch,
-
     committed_count: usize,
 
     // Whether synchronize WAL is preferred.
@@ -427,7 +425,7 @@ where
         // If `enable_multi_batch_write` was set true, we create `RocksWriteBatchVec`.
         // Otherwise create `RocksWriteBatch`.
         let kv_wb = engines.kv.write_batch_with_cap(DEFAULT_APPLY_WB_SIZE);
-        let r_wb = engines.raft.log_batch(RAFT_WB_DEFAULT_SIZE);
+//        let r_wb = engines.raft.log_batch(RAFT_WB_DEFAULT_SIZE);
 
         ApplyContext {
             tag,
@@ -439,7 +437,7 @@ where
             router,
             notifier,
             kv_wb,
-            r_wb,
+//            r_wb,
             applied_batch: ApplyCallbackBatch::new(),
             apply_res: vec![],
             exec_log_index: 0,
@@ -499,6 +497,11 @@ where
     /// Writes all the changes into RocksDB.
     /// If it returns true, all pending writes are persisted in engines.
     pub fn write_to_db(&mut self) -> bool {
+        fail_point!(
+            "write_to_db_begin",
+            |_| false
+        );
+        
         let need_sync = self.sync_log_hint;
         // There may be put and delete requests after ingest request in the same fsm.
         // To guarantee the correct order, we must ingest the pending_sst first, and
@@ -515,6 +518,11 @@ where
                 });
             self.pending_ssts = vec![];
         }
+        fail_point!(
+            "write_to_db_after_ingest_sst",
+            |_| false
+        );
+
         if !self.kv_wb_mut().is_empty() {
             let mut write_opts = engine_traits::WriteOptions::new();
             //write_opts.set_sync(need_sync);
@@ -538,6 +546,10 @@ where
             self.kv_wb_last_bytes = 0;
             self.kv_wb_last_keys = 0;
         }
+        fail_point!(
+            "write_to_db_after_write_wb",
+            |_| false
+        );
 
         // need_sync is only true when admin commands (except gc) or ingest sst
         // are processed. Not the common case. We don't have a WAL to sync, so
@@ -547,6 +559,10 @@ where
                 panic!("failed to flush kv in apply write_to_db: {:?}", e);
             });
         }
+        fail_point!(
+            "write_to_db_after_sync_memtables",
+            |_| false
+        );
 
         if !self.delete_ssts.is_empty() {
             let tag = self.tag.clone();
@@ -556,6 +572,11 @@ where
                 });
             }
         }
+        fail_point!(
+            "write_to_db_after_delete_ssts",
+            |_| false
+        );
+        
         // Take the applied commands and their callback
         let ApplyCallbackBatch {
             cmd_batch,
@@ -2385,7 +2406,7 @@ where
                 continue;
             }
             write_peer_state(&mut ctx.kv_wb, new_region, PeerState::Normal, None)
-                .and_then(|_| write_initial_apply_state(&mut ctx.kv_wb, &mut ctx.r_wb, new_region.get_id()))
+                .and_then(|_| write_initial_apply_state(&mut ctx.kv_wb, new_region.get_id()))
                 .unwrap_or_else(|e| {
                     panic!(
                         "{} fails to save split region {:?}: {:?}",
@@ -4265,7 +4286,7 @@ mod tests {
         let raft_engine = engine_test::raft::new_engine(
             path.path().join("raft").to_str().unwrap(),
             None,
-            ALL_CFS,
+            CF_DEFAULT,
             None,
         ).unwrap();
         let engines = Engines::new(kv_engine, raft_engine);

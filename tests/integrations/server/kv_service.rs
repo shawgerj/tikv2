@@ -762,12 +762,12 @@ fn test_debug_region_info() {
     let apply_state_key = keys::apply_state_key(region_id);
     let mut apply_state = raft_serverpb::RaftApplyState::default();
     apply_state.set_applied_index(42);
-    raft_engine
+    kv_engine
         .c()
         .put_msg_cf(CF_RAFT, &apply_state_key, &apply_state)
         .unwrap();
     assert_eq!(
-        raft_engine
+        kv_engine
             .c()
             .get_msg_cf::<raft_serverpb::RaftApplyState>(CF_RAFT, &apply_state_key)
             .unwrap()
@@ -778,12 +778,12 @@ fn test_debug_region_info() {
     let region_state_key = keys::region_state_key(region_id);
     let mut region_state = raft_serverpb::RegionLocalState::default();
     region_state.set_state(raft_serverpb::PeerState::Tombstone);
-    raft_engine
+    kv_engine
         .c()
         .put_msg_cf(CF_RAFT, &region_state_key, &region_state)
         .unwrap();
     assert_eq!(
-        raft_engine
+        kv_engine
             .c()
             .get_msg_cf::<raft_serverpb::RegionLocalState>(CF_RAFT, &region_state_key)
             .unwrap()

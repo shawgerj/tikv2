@@ -1353,8 +1353,7 @@ impl RaftDbConfig {
     }
 
     pub fn build_cf_opts(&self, cache: &Option<Cache>) -> Vec<CFOptions<'_>> {
-        vec![CFOptions::new(CF_DEFAULT, self.defaultcf.build_opt(cache)),
-             CFOptions::new(CF_RAFT, self.raftcf.build_opt(cache))]
+        vec![CFOptions::new(CF_DEFAULT, self.defaultcf.build_opt(cache))]
     }
 
     fn validate(&mut self) -> Result<(), Box<dyn Error>> {

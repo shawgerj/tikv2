@@ -2524,7 +2524,6 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
     fn on_create_peer(&self, region: Region) {
         info!("creating a peer"; "peer" => ?region);
         let mut kv_wb = self.ctx.engines.kv.write_batch();
-        let mut raft_wb = self.ctx.engines.raft.log_batch(0);
         let region_state_key = keys::region_state_key(region.get_id());
         match self
             .ctx
@@ -2558,16 +2557,13 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
         write_opts.set_disable_wal(true);
         if let Err(e) = kv_wb.write_opt(&write_opts) {
             panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
-        }        
-        // write to raft engine
-        if let Err(e) = self.ctx.engines.raft.consume(&mut raft_wb, true) {
-            panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
         }
-        // let mut write_opts = WriteOptions::new();
-        // write_opts.set_sync(true);
-        // if let Err(e) = kv_wb.write_opt(&write_opts) {
-        //     panic!("fail to write while creating {:?} err {:?}", region, e);
-        // }
+
+        // shawgerj: added flush since no WAL to sync... 
+        self.ctx.engines.kv.flush_all().unwrap_or_else(|e| {
+            panic!("failed to flush kv in store.rs on_create_peer: {:?}", e);
+        });
+
         let (sender, mut peer) = match PeerFsm::create(
             self.ctx.store.get_id(),
             &self.ctx.cfg,

@@ -1720,9 +1720,8 @@ pub fn write_initial_raft_state<W: RaftLogBatch>(raft_wb: &mut W, region_id: u64
 
 // When we bootstrap the region or handling split new region, we must
 // call this to initialize region apply state first.
-pub fn write_initial_apply_state<T: Mutable, RB: RaftLogBatch>(
+pub fn write_initial_apply_state<T: Mutable>(
     kv_wb: &mut T,
-    raft_wb: &mut RB,
     region_id: u64
 ) -> Result<()> {
     let mut apply_state = RaftApplyState::default();
@@ -1735,7 +1734,6 @@ pub fn write_initial_apply_state<T: Mutable, RB: RaftLogBatch>(
         .set_term(RAFT_INIT_LOG_TERM);
 
     kv_wb.put_msg_cf(CF_RAFT, &keys::apply_state_key(region_id), &apply_state)?;
-    raft_wb.put_raft_apply_state(region_id, &apply_state)?;
     Ok(())
 }
 
@@ -1839,7 +1837,7 @@ mod tests {
             .unwrap();
         let raft_path = path.path().join(Path::new("raft"));
         let raft_db =
-            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, ALL_CFS, None)
+            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, CF_DEFAULT, None)
                 .unwrap();
         let engines = Engines::new(kv_db, raft_db);
         bootstrap_store(&engines, 1, 1).unwrap();
@@ -2677,7 +2675,7 @@ mod tests {
             engine_test::kv::new_engine(td.path().to_str().unwrap(), None, ALL_CFS, None).unwrap();
         let raft_path = td.path().join(Path::new("raft"));
         let raft_db =
-            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, ALL_CFS, None)
+            engine_test::raft::new_engine(raft_path.to_str().unwrap(), None, CF_DEFAULT, None)
                 .unwrap();
         let engines = Engines::new(kv_db, raft_db);
         bootstrap_store(&engines, 1, 1).unwrap();
