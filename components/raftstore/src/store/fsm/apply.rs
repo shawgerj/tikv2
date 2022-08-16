@@ -26,7 +26,7 @@ use crossbeam::channel::{TryRecvError, TrySendError};
 use engine_traits::PerfContext;
 use engine_traits::PerfContextKind;
 use engine_traits::{
-    Engines, DeleteStrategy, KvEngine, Mutable, RaftEngine, RaftEngineReadOnly, Range as EngineRange, Snapshot, WriteBatch, RaftLogBatch,
+    Engines, DeleteStrategy, KvEngine, Mutable, RaftEngine, RaftEngineReadOnly, Range as EngineRange, Snapshot, WriteBatch,
 };
 use engine_traits::{SSTMetaInfo, ALL_CFS, CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE};
 use fail::fail_point;
@@ -82,7 +82,6 @@ use super::metrics::*;
 
 const DEFAULT_APPLY_WB_SIZE: usize = 4 * 1024;
 const APPLY_WB_SHRINK_SIZE: usize = 1024 * 1024;
-const RAFT_WB_SHRINK_SIZE: usize = 10 * 1024 * 1024;
 const RAFT_WB_DEFAULT_SIZE: usize = 256 * 1024;
 const SHRINK_PENDING_CMD_QUEUE_CAP: usize = 64;
 const MAX_APPLY_BATCH_SIZE: usize = 64 * 1024 * 1024;
@@ -481,7 +480,7 @@ where
     /// This call is valid only when it's between a `prepare_for` and `finish_for`.
     pub fn commit(&mut self, delegate: &mut ApplyDelegate<EK, ER>) {
         if delegate.last_flush_applied_index < delegate.apply_state.get_applied_index() {
-            delegate.write_apply_state(&mut self.kv_wb, &mut self.r_wb);
+            delegate.write_apply_state(&mut self.kv_wb);
         }
         self.commit_opt(delegate, true);
     }
@@ -539,18 +538,14 @@ where
             self.kv_wb_last_bytes = 0;
             self.kv_wb_last_keys = 0;
         }
-        // shawgerj added: apply_state needs to be written to raft engine now
-        if !self.r_wb.is_empty() {
-            self.engines.raft.consume_and_shrink(
-                &mut self.r_wb,
-                true,
-                RAFT_WB_SHRINK_SIZE,
-                RAFT_WB_DEFAULT_SIZE,
-                )
-                .unwrap_or_else(|e| {
-                    panic!("failed to write to engine: {:?}", e);
-                });
-            // shawgerj: TODO reporting metrics for raft write
+
+        // need_sync is only true when admin commands (except gc) or ingest sst
+        // are processed. Not the common case. We don't have a WAL to sync, so
+        // flush the memtables...
+        if need_sync {
+            self.engines.kv.flush_all().unwrap_or_else(|e| {
+                panic!("failed to flush kv in apply write_to_db: {:?}", e);
+            });
         }
 
         if !self.delete_ssts.is_empty() {
@@ -593,7 +588,7 @@ where
         results: VecDeque<ExecResult<EK::Snapshot>>,
     ) {
         if !delegate.pending_remove {
-            delegate.write_apply_state(&mut self.kv_wb, &mut self.r_wb);
+            delegate.write_apply_state(&mut self.kv_wb);
         }
         self.commit_opt(delegate, false);
         self.apply_res.push(ApplyRes {
@@ -1039,7 +1034,7 @@ where
         self.metrics.written_keys += apply_ctx.delta_keys();
     }
 
-    fn write_apply_state(&self, kv_rb: &mut EK::WriteBatch, r_wb: &mut ER::LogBatch) {
+    fn write_apply_state(&self, kv_rb: &mut EK::WriteBatch) {
         // write to kv-store
         kv_rb.put_msg_cf(
             CF_RAFT,
@@ -1049,15 +1044,6 @@ where
         .unwrap_or_else(|e| {
             panic!(
                 "{} failed to save apply state to kv write batch, error: {:?}",
-                self.tag, e
-            );
-        });
-
-        // write to raft-store
-        r_wb.put_raft_apply_state(self.region.get_id(), &self.apply_state)
-        .unwrap_or_else(|e| {
-            panic!(
-                "{} failed to save apply state to raft log batch, error: {:?}",
                 self.tag, e
             );
         });
@@ -1951,7 +1937,7 @@ where
         } else {
             PeerState::Normal
         };
-        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, state, None) {
+        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -1996,7 +1982,7 @@ where
             PeerState::Normal
         };
 
-        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, state, None) {
+        if let Err(e) = write_peer_state(&mut ctx.kv_wb, &region, state, None) {
             panic!("{} failed to update region state: {:?}", self.tag, e);
         }
 
@@ -2398,7 +2384,7 @@ where
                 );
                 continue;
             }
-            write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, new_region, PeerState::Normal, None)
+            write_peer_state(&mut ctx.kv_wb, new_region, PeerState::Normal, None)
                 .and_then(|_| write_initial_apply_state(&mut ctx.kv_wb, &mut ctx.r_wb, new_region.get_id()))
                 .unwrap_or_else(|e| {
                     panic!(
@@ -2407,7 +2393,7 @@ where
                     )
                 });
         }
-        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(&mut ctx.kv_wb, &derived, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!("{} fails to update region {:?}: {:?}", self.tag, derived, e)
         });
         let mut resp = AdminResponse::default();
@@ -2472,7 +2458,6 @@ where
         
         write_peer_state(
             &mut ctx.kv_wb,
-            &mut ctx.r_wb,
             &region,
             PeerState::Merging,
             Some(merging_state.clone()),
@@ -2608,14 +2593,13 @@ where
         } else {
             region.set_start_key(source_region.get_start_key().to_vec());
         }
-        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, PeerState::Normal, None)
+        write_peer_state(&mut ctx.kv_wb, &region, PeerState::Normal, None)
             .and_then(|_| {
                 // TODO: maybe all information needs to be filled?
                 let mut merging_state = MergeState::default();
                 merging_state.set_target(self.region.clone());
                 write_peer_state(
                     &mut ctx.kv_wb,
-                    &mut ctx.r_wb,
                     source_region,
                     PeerState::Tombstone,
                     Some(merging_state),
@@ -2666,7 +2650,7 @@ where
         let version = region.get_region_epoch().get_version();
         // Update version to avoid duplicated rollback requests.
         region.mut_region_epoch().set_version(version + 1);
-        write_peer_state(&mut ctx.kv_wb, &mut ctx.r_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(&mut ctx.kv_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!(
                 "{} failed to rollback merge {:?}: {:?}",
                 self.tag, rollback, e
@@ -3505,8 +3489,8 @@ where
             if apply_ctx.timer.is_none() {
                 apply_ctx.timer = Some(Instant::now_coarse());
             }
-            self.delegate.write_apply_state(&mut apply_ctx.kv_wb,
-                                            &mut apply_ctx.r_wb);
+            self.delegate.write_apply_state(&mut apply_ctx.kv_wb);
+
             fail_point!(
                 "apply_on_handle_snapshot_1_1",
                 self.delegate.id == 1 && self.delegate.region_id() == 1,

@@ -6,7 +6,7 @@ use super::peer_storage::{
 use super::util::new_peer;
 use crate::Result;
 use engine_traits::{Engines, KvEngine, Mutable, RaftEngine, WriteBatch};
-use engine_traits::{ALL_CFS, CF_DEFAULT, CF_RAFT};
+use engine_traits::{CF_DEFAULT, CF_RAFT};
 
 use kvproto::metapb;
 use kvproto::raft_serverpb::{RaftLocalState, RegionLocalState, StoreIdent};

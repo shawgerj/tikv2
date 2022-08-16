@@ -2545,7 +2545,7 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
                 panic!("cannot determine whether {:?} exists, err {:?}", region, e)
             }
         };
-        peer_storage::write_peer_state(&mut kv_wb, &mut raft_wb, &region, PeerState::Normal, None)
+        peer_storage::write_peer_state(&mut kv_wb, &region, PeerState::Normal, None)
             .unwrap_or_else(|e| {
                 panic!(
                     "fail to add peer state into write batch while creating {:?} err {:?}",

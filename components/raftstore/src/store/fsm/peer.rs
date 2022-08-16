@@ -756,7 +756,7 @@ where
         };
         let mut kv_wb = self.ctx.engines.kv.write_batch();
         let mut r_wb = self.ctx.engines.raft.log_batch(0);
-        write_peer_state(&mut kv_wb, &mut r_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
+        write_peer_state(&mut kv_wb, &region, PeerState::Normal, None).unwrap_or_else(|e| {
             panic!(
                 "fails to write RegionLocalState {:?} into write brach, err {:?}",
                 region, e

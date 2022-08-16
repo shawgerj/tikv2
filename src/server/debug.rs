@@ -21,7 +21,7 @@ use engine_rocks::RocksMvccProperties;
 use engine_rocks::{Compat, RocksEngine, RocksEngineIterator, RocksWriteBatch};
 use engine_traits::{
     Engines, IterOptions, Iterable, Iterator as EngineIterator, Mutable, Peekable, RaftEngine,
-    RangePropertiesExt, SeekKey, SyncMutable, WriteBatch, WriteOptions, RaftLogBatch
+    RangePropertiesExt, SeekKey, SyncMutable, WriteBatch, WriteOptions,
 };
 use engine_traits::{MvccProperties, Range, WriteBatchExt, CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE};
 use raftstore::coprocessor::get_region_approximate_middle;
@@ -327,20 +327,21 @@ impl<ER: RaftEngine> Debugger<ER> {
     pub fn set_region_tombstone(&self, regions: Vec<Region>) -> Result<Vec<(u64, Error)>> {
         let store_id = self.get_store_id()?;
         let db_kv = &self.engines.kv;
-        let db_r = &self.engines.raft;
         let mut wb_kv = db_kv.write_batch();
-        let mut wb_r = db_r.log_batch(0);
-
         let mut errors = Vec::with_capacity(regions.len());
+        
         for region in regions {
             let region_id = region.get_id();
-            if let Err(e) = set_region_tombstone(db_kv.as_inner(), db_r, store_id, region, &mut wb_kv, &mut wb_r) {
+            if let Err(e) = set_region_tombstone(db_kv.as_inner(), store_id, region, &mut wb_kv) {
                 errors.push((region_id, e));
             }
         }
 
         if errors.is_empty() {
-            box_try!(&self.engines.raft.consume(&mut wb_r, true));
+            let mut write_opts = WriteOptions::new();
+            write_opts.set_sync(false);
+            write_opts.set_disable_wal(true);
+            box_try!(wb_kv.write_opt(&write_opts));
         }
         Ok(errors)
     }
@@ -370,7 +371,7 @@ impl<ER: RaftEngine> Debugger<ER> {
                 continue;
             }
             let region = &region_state.get_region();
-            write_peer_state(&mut wb_kv, &mut wb, region, PeerState::Tombstone, None).unwrap();
+            write_peer_state(&mut wb_kv,region, PeerState::Tombstone, None).unwrap();
         }
 
         let mut write_opts = WriteOptions::new();
@@ -1268,13 +1269,11 @@ fn validate_db_and_cf(db: DBType, cf: &str) -> Result<()> {
     }
 }
 
-fn set_region_tombstone<ER: RaftEngine, WR: RaftLogBatch>(
+fn set_region_tombstone(
     db_kv: &Arc<DB>,
-    db_r: &ER,
     store_id: u64,
     region: Region,
     wb_kv: &mut RocksWriteBatch,
-    wb_r: &mut WR,
 ) -> Result<()> {
     let id = region.get_id();
     let key = keys::region_state_key(id);
@@ -1315,7 +1314,7 @@ fn set_region_tombstone<ER: RaftEngine, WR: RaftLogBatch>(
         return Err(box_err!("The peer is still in target peers"));
     }
 
-    box_try!(write_peer_state(wb_kv, wb_r, &region, PeerState::Tombstone, None));
+    box_try!(write_peer_state(wb_kv, &region, PeerState::Tombstone, None));
     Ok(())
 }
 

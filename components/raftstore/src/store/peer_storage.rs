@@ -1229,9 +1229,9 @@ where
         }
         // Write its source peers' `RegionLocalState` together with itself for atomicity
         for r in destroy_regions {
-            write_peer_state(kv_wb, raft_wb, r, PeerState::Tombstone, None)?;
+            write_peer_state(kv_wb, r, PeerState::Tombstone, None)?;
         }
-        write_peer_state(kv_wb, raft_wb, &region, PeerState::Applying, None)?;
+        write_peer_state(kv_wb, &region, PeerState::Applying, None)?;
 
         let last_index = snap.get_metadata().get_index();
 
@@ -1739,9 +1739,8 @@ pub fn write_initial_apply_state<T: Mutable, RB: RaftLogBatch>(
     Ok(())
 }
 
-pub fn write_peer_state<T: RaftLogBatch, Q: Mutable>(
+pub fn write_peer_state<Q: Mutable>(
     kv_wb: &mut Q,
-    raft_wb: &mut T,
     region: &metapb::Region,
     state: PeerState,
     merge_state: Option<MergeState>,
@@ -1760,7 +1759,6 @@ pub fn write_peer_state<T: RaftLogBatch, Q: Mutable>(
         "state" => ?region_state,
     );
     kv_wb.put_msg_cf(CF_RAFT, &keys::region_state_key(region_id), &region_state)?;
-    raft_wb.put_raft_region_state(region_id, &region_state)?;
     Ok(())
 }
 
