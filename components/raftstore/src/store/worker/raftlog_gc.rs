@@ -123,6 +123,7 @@ impl<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> Runner<EK, ER, R> {
         }
         // Sync wal of kv_db to make sure the data before apply_index has been persisted to disk.
         let start = Instant::now();
+        print!{"Flushing in raftlog_gc\n"};
         self.engines.kv.flush_all().unwrap_or_else(|e| {
             panic!("failed to flush kv_engine in raft_log_gc: {:?}", e);
         });
@@ -225,7 +226,8 @@ where
     }
 
     fn shutdown(&mut self) {
-        self.flush();
+        // shawgerj editing, disable for now
+//        self.flush();
     }
 }
 

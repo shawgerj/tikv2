@@ -944,7 +944,7 @@ fn test_cluster_wal_sync_fault() {
         
 //    cluster.stop_node(1);
 //    cluster.run_node(1).unwrap();
-    must_get_none(&cluster.get_engine(1), b"0009");
+    must_get_none(&cluster.get_engine(1), b"0004");
 }
 
 

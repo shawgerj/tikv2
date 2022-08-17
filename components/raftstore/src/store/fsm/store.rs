@@ -2559,7 +2559,8 @@ impl<'a, EK: KvEngine, ER: RaftEngine, T: Transport> StoreFsmDelegate<'a, EK, ER
             panic!("fail to update RegionLocalstate {:?} err {:?}", region, e);
         }
 
-        // shawgerj: added flush since no WAL to sync... 
+        // shawgerj: added flush since no WAL to sync...
+        print!{"Flushing in on_create_peer\n"};
         self.ctx.engines.kv.flush_all().unwrap_or_else(|e| {
             panic!("failed to flush kv in store.rs on_create_peer: {:?}", e);
         });

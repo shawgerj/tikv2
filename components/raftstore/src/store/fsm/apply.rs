@@ -555,6 +555,7 @@ where
         // are processed. Not the common case. We don't have a WAL to sync, so
         // flush the memtables...
         if need_sync {
+            print!{"Flushing in apply write_to_db\n"};
             self.engines.kv.flush_all().unwrap_or_else(|e| {
                 panic!("failed to flush kv in apply write_to_db: {:?}", e);
             });
@@ -778,6 +779,8 @@ fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
             // apply thread directly.
             return false;
         }
+        print!{"Command type is {:?}\n",  cmd.get_admin_request().get_cmd_type()};
+        print!{"Weird\n"};
         return true;
     }
 
@@ -786,6 +789,7 @@ fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
         // ingest sst command can not be handled again and must be synced.
         // See more in Cleanup worker.
         if req.has_ingest_sst() {
+            print!{"ingest sst cmd\n"};
             return true;
         }
     }

@@ -84,6 +84,7 @@ pub fn prepare_bootstrap_cluster(
     write_opts.set_disable_wal(true);
     wb.write_opt(&write_opts)?;
     // shawgerj: flush required?
+    print!{"Flushing in prepare_bootstrap_cluster\n"};
     engines.kv.flush_all().unwrap_or_else(|e| {
         panic!("failed to flush kv in prepare_bootstrap_cluster: {:?}", e);
     });
