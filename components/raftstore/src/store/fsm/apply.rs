@@ -494,12 +494,45 @@ where
         self.kv_wb_last_keys = self.kv_wb().count() as u64;
     }
 
+    fn do_callbacks(&mut self) {
+        // Take the applied commands and their callback
+        let ApplyCallbackBatch {
+            cmd_batch,
+            batch_max_level,
+            mut cb_batch,
+        } = mem::replace(&mut self.applied_batch, ApplyCallbackBatch::new());
+        // Call it before invoking callback for preventing Commit is executed before Prewrite is observed.
+        self.host
+            .on_flush_applied_cmd_batch(batch_max_level, cmd_batch, &self.engines.kv);
+        // Invoke callbacks
+        let now = Instant::now();
+        for (cb, resp) in cb_batch.drain(..) {
+            if let Some(times) = cb.get_request_times() {
+                for t in times {
+                    self.apply_time
+                        .observe(duration_to_sec(now.saturating_duration_since(*t)));
+                }
+            }
+            cb.invoke_with_response(resp);
+        }
+    }
+
+    fn clear_wb(&mut self) {
+        self.kv_wb_mut().clear();
+        self.kv_wb_last_bytes = 0;
+        self.kv_wb_last_keys = 0;
+    }   
+    
     /// Writes all the changes into RocksDB.
     /// If it returns true, all pending writes are persisted in engines.
     pub fn write_to_db(&mut self) -> bool {
         fail_point!(
             "write_to_db_begin",
-            |_| false
+            |_| {
+                self.clear_wb();
+                self.do_callbacks(); // otherwise timeout panic
+                false // nothing synced
+            }
         );
         
         let need_sync = self.sync_log_hint;
@@ -520,7 +553,11 @@ where
         }
         fail_point!(
             "write_to_db_after_ingest_sst",
-            |_| false
+            |_| {
+                self.clear_wb();
+                self.do_callbacks();
+                false
+            }
         );
 
         if !self.kv_wb_mut().is_empty() {
@@ -548,8 +585,15 @@ where
         }
         fail_point!(
             "write_to_db_after_write_wb",
-            |_| false
+            |_| {
+                self.clear_wb();
+                self.do_callbacks();
+                false
+            }
         );
+
+        // potential bug - ingest sst, flush memtable due to being full, crash before
+        // applied index is persisted and sst is deleted
 
         // need_sync is only true when admin commands (except gc) or ingest sst
         // are processed. Not the common case. We don't have a WAL to sync, so
@@ -562,7 +606,11 @@ where
         }
         fail_point!(
             "write_to_db_after_sync_memtables",
-            |_| false
+            |_| {
+                self.clear_wb();
+                self.do_callbacks();
+                false
+            }
         );
 
         if !self.delete_ssts.is_empty() {
@@ -575,7 +623,11 @@ where
         }
         fail_point!(
             "write_to_db_after_delete_ssts",
-            |_| false
+            |_| {
+                self.clear_wb();
+                self.do_callbacks();
+                false
+            }
         );
         
         // Take the applied commands and their callback
