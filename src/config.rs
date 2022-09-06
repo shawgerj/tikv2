@@ -360,7 +360,7 @@ macro_rules! write_into_metrics {
             .with_label_values(&[$tag, "read_amp_bytes_per_bit"])
             .set($cf.read_amp_bytes_per_bit.into());
         $metrics
-            .with_label_values(&[$tag, "write_buffer_size"])
+            .with_label_values(&[$tag, "rgwrite_buffer_size"])
             .set($cf.write_buffer_size.0 as f64);
         $metrics
             .with_label_values(&[$tag, "max_write_buffer_number"])

@@ -255,6 +255,8 @@ impl MiscExt for RocksEngine {
         Ok(self.as_inner().sync_wal()?)
     }
 
+    
+
     fn exists(path: &str) -> bool {
         crate::raw_util::db_exist(path)
     }

@@ -26,7 +26,7 @@ use crossbeam::channel::{TryRecvError, TrySendError};
 use engine_traits::PerfContext;
 use engine_traits::PerfContextKind;
 use engine_traits::{
-    Engines, DeleteStrategy, KvEngine, Mutable, RaftEngine, RaftEngineReadOnly, Range as EngineRange, Snapshot, WriteBatch,
+    Engines, DeleteStrategy, KvEngine, Mutable, RaftEngine, RaftEngineReadOnly, Range as EngineRange, Snapshot, WriteBatch, MiscExt,
 };
 use engine_traits::{SSTMetaInfo, ALL_CFS, CF_DEFAULT, CF_LOCK, CF_RAFT, CF_WRITE};
 use fail::fail_point;
@@ -236,6 +236,9 @@ impl Range {
 #[derive(Debug)]
 pub enum ExecResult<S> {
     ChangePeer(ChangePeer),
+    GetStats { 
+        index: u64,
+    },
     CompactLog {
         state: RaftTruncatedState,
         first_index: u64,
@@ -825,7 +828,9 @@ fn has_high_latency_operation(cmd: &RaftCmdRequest) -> bool {
 /// Checks if a write is needed to be issued after handling the command.
 fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
     if cmd.has_admin_request() {
-        if cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog {
+        if (cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog ||
+            cmd.get_admin_request().get_cmd_type() == AdminCmdType::GetStats
+        {
             // We do not need to sync WAL before compact log, because this request will send a msg to
             // raft_gc_log thread to delete the entries before this index instead of deleting them in
             // apply thread directly.
@@ -1508,6 +1513,7 @@ where
             AdminCmdType::PrepareMerge => self.exec_prepare_merge(ctx, request),
             AdminCmdType::CommitMerge => self.exec_commit_merge(ctx, request),
             AdminCmdType::RollbackMerge => self.exec_rollback_merge(ctx, request),
+            AdminCmdType::GetStats => self.exec_get_stats(ctx, request),
             AdminCmdType::InvalidAdmin => Err(box_err!("unsupported admin command type")),
         }?;
         response.set_cmd_type(cmd_type);
@@ -2845,6 +2851,22 @@ where
                 index,
                 context,
                 hash,
+            }),
+        ))
+    }
+
+    fn exec_get_stats(
+        &self,
+        _: &ApplyContext<EK, ER>,
+        req: &AdminRequest,
+    ) -> Result<(AdminResponse, ApplyResult<EK::Snapshot>)> {
+        info!("{:?}", MiscExt::dump_stats(ctx.&engines.kv));
+        let index = req.get_index();
+        let resp = AdminResponse::default();
+        Ok((
+            resp,
+            ApplyResult::Res(ExecResult::GetStats {
+                index,
             }),
         ))
     }
