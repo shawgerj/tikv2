@@ -237,7 +237,6 @@ impl Range {
 pub enum ExecResult<S> {
     ChangePeer(ChangePeer),
     GetStats { 
-        index: u64,
     },
     CompactLog {
         state: RaftTruncatedState,
@@ -828,7 +827,7 @@ fn has_high_latency_operation(cmd: &RaftCmdRequest) -> bool {
 /// Checks if a write is needed to be issued after handling the command.
 fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
     if cmd.has_admin_request() {
-        if (cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog ||
+        if cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog ||
             cmd.get_admin_request().get_cmd_type() == AdminCmdType::GetStats
         {
             // We do not need to sync WAL before compact log, because this request will send a msg to
@@ -1379,6 +1378,7 @@ where
                 | ExecResult::VerifyHash { .. }
                 | ExecResult::CompactLog { .. }
                 | ExecResult::DeleteRange { .. }
+                | ExecResult::GetStats { .. }
                 | ExecResult::IngestSst { .. } => {}
                 ExecResult::SplitRegion { ref derived, .. } => {
                     self.region = derived.clone();
@@ -1513,7 +1513,7 @@ where
             AdminCmdType::PrepareMerge => self.exec_prepare_merge(ctx, request),
             AdminCmdType::CommitMerge => self.exec_commit_merge(ctx, request),
             AdminCmdType::RollbackMerge => self.exec_rollback_merge(ctx, request),
-            AdminCmdType::GetStats => self.exec_get_stats(ctx, request),
+            AdminCmdType::GetStats => self.exec_get_stats(ctx),
             AdminCmdType::InvalidAdmin => Err(box_err!("unsupported admin command type")),
         }?;
         response.set_cmd_type(cmd_type);
@@ -2857,17 +2857,13 @@ where
 
     fn exec_get_stats(
         &self,
-        _: &ApplyContext<EK, ER>,
-        req: &AdminRequest,
+        ctx: &ApplyContext<EK, ER>,
     ) -> Result<(AdminResponse, ApplyResult<EK::Snapshot>)> {
-        info!("{:?}", MiscExt::dump_stats(ctx.&engines.kv));
-        let index = req.get_index();
+        info!("{:?}", MiscExt::dump_stats(&ctx.engines.kv));
         let resp = AdminResponse::default();
         Ok((
             resp,
-            ApplyResult::Res(ExecResult::GetStats {
-                index,
-            }),
+            ApplyResult::Res(ExecResult::GetStats {}),
         ))
     }
 
