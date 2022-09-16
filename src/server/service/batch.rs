@@ -56,7 +56,7 @@ impl ReqBatcher {
         self.gets.push(req);
         self.get_ids.push(id);
     }
-
+    
     pub fn add_raw_get_request(&mut self, req: RawGetRequest, id: u64) {
         self.raw_gets.push(req);
         self.raw_get_ids.push(id);

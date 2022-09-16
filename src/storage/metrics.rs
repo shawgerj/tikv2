@@ -200,6 +200,7 @@ make_auto_flush_static_metric! {
         pause,
         key_mvcc,
         start_ts_mvcc,
+        raw_print_stats,
         raw_get,
         raw_batch_get,
         raw_scan,

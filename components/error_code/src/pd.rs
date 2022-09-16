@@ -4,6 +4,7 @@ define_error_codes!(
     "KV:PD:",
 
     IO => ("IO", "", ""),
+    GLOBAL_CONFIG_NOT_FOUND => ("GlobalConfigNotFound", "", ""),
     CLUSTER_BOOTSTRAPPED => ("ClusterBootstraped", "", ""),
     CLUSTER_NOT_BOOTSTRAPPED => ("ClusterNotBootstraped", "", ""),
     INCOMPATIBLE => ("Imcompatible", "", ""),

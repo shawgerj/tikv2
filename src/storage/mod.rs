@@ -81,7 +81,7 @@ use crate::storage::{
     types::StorageCallbackType,
 };
 use concurrency_manager::ConcurrencyManager;
-use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS};
+use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS, MiscExt};
 use futures::prelude::*;
 use kvproto::kvrpcpb::ApiVersion;
 use kvproto::kvrpcpb::{
@@ -340,6 +340,7 @@ impl<E: Engine, L: LockManager> Storage<E, L> {
         matches!(
             cmd,
             CommandKind::raw_batch_get_command
+                | CommandKind::raw_print_stats
                 | CommandKind::raw_get
                 | CommandKind::raw_batch_get
                 | CommandKind::raw_scan
@@ -1417,6 +1418,29 @@ impl<E: Engine, L: LockManager> Storage<E, L> {
                 .await?
         }
     }
+
+    /// print rocksdb stats to log file
+    pub fn raw_print_stats(
+        &self,
+        ctx: Context,
+        callback: Callback<()>,
+    ) -> Result<()> {
+        //        MiscExt::dump_stats(&self.engine);
+        let m = Modify::PrintStats();
+
+        let mut batch = WriteData::from_modifies(vec![m]);
+        batch.set_allowed_on_disk_almost_full();
+
+        self.engine.async_write(
+            &ctx,
+            batch,
+            Box::new(|(_, res): (_, kv::Result<_>)| callback(res.map_err(Error::from))),
+        )?; 
+
+        KV_COMMAND_COUNTER_VEC_STATIC.raw_print_stats.inc();
+        Ok(())
+    }
+
 
     /// Write a raw key to the storage.
     pub fn raw_put(

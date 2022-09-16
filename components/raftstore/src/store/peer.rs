@@ -4547,9 +4547,10 @@ pub trait RequestInspector {
         let mut has_read = false;
         let mut has_write = false;
         for r in req.get_requests() {
+            // PrintStats doesn't really have a write, but I want it to be proposed to all replicas.
             match r.get_cmd_type() {
                 CmdType::Get | CmdType::Snap | CmdType::ReadIndex => has_read = true,
-                CmdType::Delete | CmdType::Put | CmdType::DeleteRange | CmdType::IngestSst => {
+                CmdType::Delete | CmdType::Put | CmdType::DeleteRange | CmdType::IngestSst | CmdType::PrintStats => {
                     has_write = true
                 }
                 CmdType::Prewrite | CmdType::Invalid => {

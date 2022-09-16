@@ -127,6 +127,7 @@ pub trait ReadExecutor<E: KvEngine> {
                 | CmdType::Put
                 | CmdType::Delete
                 | CmdType::DeleteRange
+                | CmdType::PrintStats
                 | CmdType::IngestSst
                 | CmdType::Invalid => unreachable!(),
             };

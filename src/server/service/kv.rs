@@ -275,6 +275,12 @@ impl<T: RaftStoreRouter<E::Local> + 'static, E: Engine, L: LockManager> Tikv for
         MvccGetByStartTsRequest,
         MvccGetByStartTsResponse
     );
+    handle_request!(
+        raw_print_stats,
+        future_raw_print_stats,
+        RawPrintStatsRequest,
+        RawPrintStatsResponse
+    );
     handle_request!(raw_get, future_raw_get, RawGetRequest, RawGetResponse);
     handle_request!(
         raw_batch_get,
@@ -1262,6 +1268,7 @@ fn handle_batch_commands_request<E: Engine, L: LockManager>(
         Gc, future_gc(), kv_gc;
         DeleteRange, future_delete_range(storage), kv_delete_range;
         RawBatchGet, future_raw_batch_get(storage), raw_batch_get;
+        RawPrintStats, future_raw_print_stats(storage), raw_print_stats;
         RawPut, future_raw_put(storage), raw_put;
         RawBatchPut, future_raw_batch_put(storage), raw_batch_put;
         RawDelete, future_raw_delete(storage), raw_delete;
@@ -1517,6 +1524,28 @@ fn future_raw_batch_get<E: Engine, L: LockManager>(
             resp.set_region_error(err);
         } else {
             resp.set_pairs(extract_kv_pairs(v).into());
+        }
+        Ok(resp)
+    }
+}
+
+fn future_raw_print_stats<E: Engine, L: LockManager>(
+    storage: &Storage<E, L>,
+    mut req: RawPrintStatsRequest,
+) -> impl Future<Output = ServerResult<RawPrintStatsResponse>> {
+    let (cb, f) = paired_future_callback();
+    let res = storage.raw_print_stats(req.take_context(), cb);
+
+    async move {
+        let v = match res {
+            Err(e) => Err(e),
+            Ok(_) => f.await?,
+        };
+        let mut resp = RawPrintStatsResponse::default();
+        if let Some(err) = extract_region_error(&v) {
+            resp.set_region_error(err);
+        } else if let Err(e) = v {
+            resp.set_error(format!("{}", e));
         }
         Ok(resp)
     }

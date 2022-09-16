@@ -87,6 +87,7 @@ pub enum Modify {
     Put(CfName, Key, Value),
     // cf_name, start_key, end_key, notify_only
     DeleteRange(CfName, Key, Key, bool),
+    PrintStats(),
 }
 
 impl Modify {
@@ -95,6 +96,7 @@ impl Modify {
             Modify::Delete(cf, _) => cf,
             Modify::Put(cf, ..) => cf,
             Modify::DeleteRange(..) => unreachable!(),
+            Modify::PrintStats(..) => unreachable!(),
         };
         let cf_size = if cf == &CF_DEFAULT { 0 } else { cf.len() };
 
@@ -102,6 +104,7 @@ impl Modify {
             Modify::Delete(_, k) => cf_size + k.as_encoded().len(),
             Modify::Put(_, k, v) => cf_size + k.as_encoded().len() + v.len(),
             Modify::DeleteRange(..) => unreachable!(),
+            Modify::PrintStats(..) => unreachable!(),
         }
     }
 
@@ -531,6 +534,10 @@ pub fn write_modifies(kv_engine: &impl LocalEngine, modifies: Vec<Modify>) -> Re
                 } else {
                     Ok(())
                 }
+            }
+            Modify::PrintStats(..) => {
+                trace!("RocksEngine: PrintStats";);
+                Ok(())
             }
         };
         // TODO: turn the error into an engine error.

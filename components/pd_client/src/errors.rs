@@ -7,6 +7,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("global config item {0} not found")]
+    GlobalConfigNotFound(String),
     #[error("cluster {0} is already bootstrapped")]
     ClusterBootstrapped(u64),
     #[error("cluster {0} is not bootstrapped")]
@@ -32,6 +34,7 @@ impl Error {
             Error::Other(_)
             | Error::RegionNotFound(_)
             | Error::StoreTombstone(_)
+            | Error::GlobalConfigNotFound(_)
             | Error::ClusterBootstrapped(_)
             | Error::Incompatible => false,
         }
@@ -41,6 +44,7 @@ impl Error {
 impl ErrorCodeExt for Error {
     fn error_code(&self) -> ErrorCode {
         match self {
+            Error::GlobalConfigNotFound(_) => error_code::pd::GLOBAL_CONFIG_NOT_FOUND,
             Error::ClusterBootstrapped(_) => error_code::pd::CLUSTER_BOOTSTRAPPED,
             Error::ClusterNotBootstrapped(_) => error_code::pd::CLUSTER_NOT_BOOTSTRAPPED,
             Error::Incompatible => error_code::pd::INCOMPATIBLE,

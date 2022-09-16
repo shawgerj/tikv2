@@ -3702,8 +3702,6 @@ where
                 ExecResult::DeleteRange { .. } => {
                     // TODO: clean user properties?
                 }
-                ExecResult::GetStats { .. } => {
-                }
                 ExecResult::IngestSst { ssts } => self.on_ingest_sst_result(ssts),
             }
         }

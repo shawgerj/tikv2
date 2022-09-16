@@ -236,8 +236,6 @@ impl Range {
 #[derive(Debug)]
 pub enum ExecResult<S> {
     ChangePeer(ChangePeer),
-    GetStats { 
-    },
     CompactLog {
         state: RaftTruncatedState,
         first_index: u64,
@@ -827,8 +825,7 @@ fn has_high_latency_operation(cmd: &RaftCmdRequest) -> bool {
 /// Checks if a write is needed to be issued after handling the command.
 fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
     if cmd.has_admin_request() {
-        if cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog ||
-            cmd.get_admin_request().get_cmd_type() == AdminCmdType::GetStats
+        if cmd.get_admin_request().get_cmd_type() == AdminCmdType::CompactLog 
         {
             // We do not need to sync WAL before compact log, because this request will send a msg to
             // raft_gc_log thread to delete the entries before this index instead of deleting them in
@@ -1378,7 +1375,6 @@ where
                 | ExecResult::VerifyHash { .. }
                 | ExecResult::CompactLog { .. }
                 | ExecResult::DeleteRange { .. }
-                | ExecResult::GetStats { .. }
                 | ExecResult::IngestSst { .. } => {}
                 ExecResult::SplitRegion { ref derived, .. } => {
                     self.region = derived.clone();
@@ -1513,7 +1509,6 @@ where
             AdminCmdType::PrepareMerge => self.exec_prepare_merge(ctx, request),
             AdminCmdType::CommitMerge => self.exec_commit_merge(ctx, request),
             AdminCmdType::RollbackMerge => self.exec_rollback_merge(ctx, request),
-            AdminCmdType::GetStats => self.exec_get_stats(ctx),
             AdminCmdType::InvalidAdmin => Err(box_err!("unsupported admin command type")),
         }?;
         response.set_cmd_type(cmd_type);
@@ -1552,6 +1547,7 @@ where
                 CmdType::DeleteRange => {
                     self.handle_delete_range(&ctx.engines.kv, req, &mut ranges, ctx.use_delete_range)
                 }
+                CmdType::PrintStats => self.handle_print_stats(ctx, req),
                 CmdType::IngestSst => self.handle_ingest_sst(ctx, req, &mut ssts),
                 // Readonly commands are handled in raftstore directly.
                 // Don't panic here in case there are old entries need to be applied.
@@ -1650,6 +1646,15 @@ where
                 );
             });
         }
+        Ok(())
+    }
+
+    fn handle_print_stats(
+        &self,
+        ctx: &ApplyContext<EK, ER>,
+        _req: &Request,
+    ) -> Result<()> {
+        info!("{:?}", MiscExt::dump_stats(&ctx.engines.kv));
         Ok(())
     }
 
@@ -2852,18 +2857,6 @@ where
                 context,
                 hash,
             }),
-        ))
-    }
-
-    fn exec_get_stats(
-        &self,
-        ctx: &ApplyContext<EK, ER>,
-    ) -> Result<(AdminResponse, ApplyResult<EK::Snapshot>)> {
-        info!("{:?}", MiscExt::dump_stats(&ctx.engines.kv));
-        let resp = AdminResponse::default();
-        Ok((
-            resp,
-            ApplyResult::Res(ExecResult::GetStats {}),
         ))
     }
 

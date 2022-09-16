@@ -278,6 +278,7 @@ fn write_modifies(engine: &BTreeEngine, modifies: Vec<Modify>) -> EngineResult<(
             }
 
             Modify::DeleteRange(_cf, _start_key, _end_key, _notify_only) => unimplemented!(),
+            Modify::PrintStats(..) => unimplemented!(),
         };
     }
     Ok(())

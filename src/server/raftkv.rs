@@ -21,7 +21,7 @@ use kvproto::{
     kvrpcpb::Context,
     metapb,
     raft_cmdpb::{
-        CmdType, DeleteRangeRequest, DeleteRequest, PutRequest, RaftCmdRequest, RaftCmdResponse,
+        CmdType, DeleteRangeRequest, DeleteRequest, PrintStatsRequest, PutRequest, RaftCmdRequest, RaftCmdResponse,
         RaftRequestHeader, Request, Response,
     },
 };
@@ -360,6 +360,7 @@ where
                     let bytes = keys::data_end_key(key2.as_encoded());
                     *key2 = Key::from_encoded(bytes);
                 }
+                Modify::PrintStats(..) => {}
             }
         }
         write_modifies(&self.engine, modifies)
@@ -596,6 +597,11 @@ pub fn modifies_to_requests(modifies: Vec<Modify>) -> Vec<Request> {
                 delete_range.set_notify_only(notify_only);
                 req.set_cmd_type(CmdType::DeleteRange);
                 req.set_delete_range(delete_range);
+            }
+            Modify::PrintStats() => {
+                let ps = PrintStatsRequest::default();
+                req.set_cmd_type(CmdType::PrintStats);
+                req.set_print_stats(ps);
             }
         }
         reqs.push(req);
