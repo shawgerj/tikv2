@@ -755,6 +755,7 @@ pub mod tests {
                             wb.delete_range_cf(cf, &k1, &k2).unwrap();
                         }
                     }
+                    Modify::PrintStats(..) => {}
                 }
             }
             wb.write().unwrap();

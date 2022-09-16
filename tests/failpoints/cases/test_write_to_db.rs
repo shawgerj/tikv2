@@ -1,11 +1,9 @@
 //use std::sync::atomic::AtomicBool;
 //use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+//use std::time::Duration;
 
-use pd_client::PdClient;
 use test_raftstore::*;
 use tikv_util::config::*;
-use tikv_util::HandyRwLock;
 
 fn run_write_to_db_with_failpoint(fp: &str) {
     let mut cluster = new_fault_node_cluster(0, 1);

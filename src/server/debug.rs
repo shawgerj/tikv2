@@ -1617,7 +1617,6 @@ mod tests {
     fn test_region_size() {
         let debugger = new_debugger();
         let engine_kv = &debugger.engines.kv;
-        let engine_raft = &debugger.engines.raft;
 
         let region_id = 1;
         let region_state_key = keys::region_state_key(region_id);

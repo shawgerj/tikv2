@@ -1092,6 +1092,7 @@ mod tests {
                         let bytes = keys::data_end_key(key2.as_encoded());
                         *key2 = Key::from_encoded(bytes);
                     }
+                    Modify::PrintStats(..) => {}
                 }
             }
             write_modifies(&self.kv_engine(), modifies)
@@ -1114,6 +1115,7 @@ mod tests {
                     *start_key = Key::from_encoded(keys::data_key(start_key.as_encoded()));
                     *end_key = Key::from_encoded(keys::data_end_key(end_key.as_encoded()));
                 }
+                Modify::PrintStats(..) => {}
             });
             self.0.async_write(ctx, batch, callback)
         }

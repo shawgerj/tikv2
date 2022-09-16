@@ -81,7 +81,7 @@ use crate::storage::{
     types::StorageCallbackType,
 };
 use concurrency_manager::ConcurrencyManager;
-use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS, MiscExt};
+use engine_traits::{CfName, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS};
 use futures::prelude::*;
 use kvproto::kvrpcpb::ApiVersion;
 use kvproto::kvrpcpb::{
@@ -1425,7 +1425,6 @@ impl<E: Engine, L: LockManager> Storage<E, L> {
         ctx: Context,
         callback: Callback<()>,
     ) -> Result<()> {
-        //        MiscExt::dump_stats(&self.engine);
         let m = Modify::PrintStats();
 
         let mut batch = WriteData::from_modifies(vec![m]);

@@ -82,7 +82,6 @@ use super::metrics::*;
 
 const DEFAULT_APPLY_WB_SIZE: usize = 4 * 1024;
 const APPLY_WB_SHRINK_SIZE: usize = 1024 * 1024;
-const RAFT_WB_DEFAULT_SIZE: usize = 256 * 1024;
 const SHRINK_PENDING_CMD_QUEUE_CAP: usize = 64;
 const MAX_APPLY_BATCH_SIZE: usize = 64 * 1024 * 1024;
 
@@ -425,7 +424,6 @@ where
         // If `enable_multi_batch_write` was set true, we create `RocksWriteBatchVec`.
         // Otherwise create `RocksWriteBatch`.
         let kv_wb = engines.kv.write_batch_with_cap(DEFAULT_APPLY_WB_SIZE);
-//        let r_wb = engines.raft.log_batch(RAFT_WB_DEFAULT_SIZE);
 
         ApplyContext {
             tag,
@@ -4317,7 +4315,7 @@ mod tests {
     use crate::store::peer_storage::RAFT_INIT_LOG_INDEX;
     use crate::store::util::{new_learner_peer, new_peer};
     use engine_panic::PanicEngine;
-    use engine_test::kv::{KvTestEngine, KvTestSnapshot, KvTestWriteBatch};
+    use engine_test::kv::{KvTestEngine, KvTestSnapshot};
     use engine_test::raft::RaftTestEngine;
     use engine_traits::{Engines, Peekable as PeekableTrait, WriteBatchExt};
     use kvproto::metapb::{self, RegionEpoch};

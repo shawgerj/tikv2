@@ -10,7 +10,7 @@ use rand::Rng;
 use kvproto::raft_cmdpb::RaftCmdResponse;
 use raft::eraftpb::MessageType;
 
-use engine_rocks::{Compat, RocksSnapshot};
+use engine_rocks::{Compat};
 use engine_traits::{Peekable, Mutable, KvEngine, CF_RAFT, WriteBatch, WriteBatchExt};
 use raftstore::router::RaftStoreRouter;
 use raftstore::store::*;
