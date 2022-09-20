@@ -32,6 +32,8 @@ with_prefix!(prefix_store "store-");
 #[serde(default)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    #[online_config(skip)]
+    pub tikv_disable_wal: bool, // shawgerj added
     // minimizes disruption when a partitioned node rejoins the cluster by using a two phase election.
     #[online_config(skip)]
     pub prevote: bool,
@@ -249,6 +251,7 @@ impl Default for Config {
     fn default() -> Config {
         let split_size = ReadableSize::mb(coprocessor::config::SPLIT_SIZE_MB);
         Config {
+            tikv_disable_wal: false,
             prevote: true,
             raftdb_path: String::new(),
             capacity: ReadableSize(0),

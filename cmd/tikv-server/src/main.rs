@@ -19,6 +19,13 @@ fn main() {
         .version(version_info.as_ref())
         .long_version(version_info.as_ref())
         .arg(
+            Arg::with_name("tikv-disable-wal")
+                .long("tikv-disable-wal")
+                .required(false)
+                .takes_value(false)
+                .help("Disable RocksDB WAL when writing to KvEngine"),
+        )
+        .arg(
              Arg::with_name("fail-on-write")
                  .long("fail-on-write")
                  .required(false)

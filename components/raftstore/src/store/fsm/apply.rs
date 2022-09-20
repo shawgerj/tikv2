@@ -401,6 +401,8 @@ where
     apply_time: LocalHistogram,
 
     key_buffer: Vec<u8>,
+
+    tikv_disable_wal: bool,
 }
 
 impl<EK, ER> ApplyContext<EK, ER>
@@ -457,6 +459,7 @@ where
             apply_wait: APPLY_TASK_WAIT_TIME_HISTOGRAM.local(),
             apply_time: APPLY_TIME_HISTOGRAM.local(),
             key_buffer: Vec::with_capacity(1024),
+            tikv_disable_wal: cfg.tikv_disable_wal,
         }
     }
 
@@ -560,10 +563,14 @@ where
 
         if !self.kv_wb_mut().is_empty() {
             let mut write_opts = engine_traits::WriteOptions::new();
-            //write_opts.set_sync(need_sync);
             // shawgerj
-            write_opts.set_sync(false);
-            write_opts.set_disable_wal(true);
+            if self.tikv_disable_wal {
+                write_opts.set_sync(false);
+                write_opts.set_disable_wal(true);
+            } else {
+                write_opts.set_sync(need_sync);
+            }
+            
             self.kv_wb().write_opt(&write_opts).unwrap_or_else(|e| {
                 panic!("failed to write to engine: {:?}", e);
             });
@@ -596,7 +603,7 @@ where
         // need_sync is only true when admin commands (except gc) or ingest sst
         // are processed. Not the common case. We don't have a WAL to sync, so
         // flush the memtables...
-        if need_sync {
+        if need_sync && self.tikv_disable_wal {
             print!{"Flushing in apply write_to_db\n"};
             self.engines.kv.flush_all().unwrap_or_else(|e| {
                 panic!("failed to flush kv in apply write_to_db: {:?}", e);
@@ -830,8 +837,6 @@ fn should_sync_log(cmd: &RaftCmdRequest) -> bool {
             // apply thread directly.
             return false;
         }
-        print!{"Command type is {:?}\n",  cmd.get_admin_request().get_cmd_type()};
-        print!{"Weird\n"};
         return true;
     }
 

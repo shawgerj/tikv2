@@ -343,6 +343,7 @@ where
     message_metrics: RaftSendMessageMetrics,
     perf_context: EK::PerfContext,
     pending_latency_inspect: Vec<(Instant, Vec<LatencyInspector>)>,
+    tikv_disable_wal: bool, 
 }
 
 impl<EK, ER, N, T> Worker<EK, ER, N, T>
@@ -383,6 +384,7 @@ where
             message_metrics: Default::default(),
             perf_context,
             pending_latency_inspect: vec![],
+            tikv_disable_wal: cfg.value().tikv_disable_wal,
         }
     }
 
@@ -485,9 +487,12 @@ where
             let now = Instant::now();
             let mut write_opts = WriteOptions::new();
             // shawgerj
-            write_opts.set_sync(false);
-      	    write_opts.set_disable_wal(true);
-            //write_opts.set_sync(true);
+            if self.tikv_disable_wal {
+                write_opts.set_sync(false);
+      	        write_opts.set_disable_wal(true);
+            } else {
+                write_opts.set_sync(true);
+            }
             // TODO: Add perf context
             self.batch.kv_wb.write_opt(&write_opts).unwrap_or_else(|e| {
                 panic!(

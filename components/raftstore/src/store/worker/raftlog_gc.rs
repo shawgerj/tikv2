@@ -85,6 +85,7 @@ pub struct Runner<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> {
     engines: Engines<EK, ER>,
     gc_entries: Option<Sender<usize>>,
     compact_sync_interval: Duration,
+    tikv_disable_wal: bool,
 }
 
 impl<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> Runner<EK, ER, R> {
@@ -92,6 +93,7 @@ impl<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> Runner<EK, ER, R> {
         ch: R,
         engines: Engines<EK, ER>,
         compact_log_interval: Duration,
+        disable_wal: bool,
     ) -> Runner<EK, ER, R> {
         Runner {
             ch,
@@ -99,6 +101,7 @@ impl<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> Runner<EK, ER, R> {
             tasks: vec![],
             gc_entries: None,
             compact_sync_interval: compact_log_interval,
+            tikv_disable_wal: disable_wal, 
         }
     }
 
@@ -123,14 +126,16 @@ impl<EK: KvEngine, ER: RaftEngine, R: CasualRouter<EK>> Runner<EK, ER, R> {
         }
         // Sync wal of kv_db to make sure the data before apply_index has been persisted to disk.
         let start = Instant::now();
-        print!{"Flushing in raftlog_gc\n"};
-        self.engines.kv.flush_all().unwrap_or_else(|e| {
-            panic!("failed to flush kv_engine in raft_log_gc: {:?}", e);
-        });
-
-        // self.engines.kv.sync().unwrap_or_else(|e| {
-        //     panic!("failed to sync kv_engine in raft_log_gc: {:?}", e);
-        // });
+        if self.tikv_disable_wal {
+            self.engines.kv.flush_all().unwrap_or_else(|e| {
+                panic!("failed to flush kv_engine in raft_log_gc: {:?}", e);
+            });
+        } else {
+            self.engines.kv.sync().unwrap_or_else(|e| {
+                panic!("failed to sync kv_engine in raft_log_gc: {:?}", e);
+            });
+        }
+        
         RAFT_LOG_GC_KV_SYNC_DURATION_HISTOGRAM.observe(start.saturating_elapsed_secs());
         let tasks = std::mem::take(&mut self.tasks);
         let mut groups = Vec::with_capacity(tasks.len());

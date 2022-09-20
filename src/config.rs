@@ -898,6 +898,8 @@ impl TitanDBConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct DbConfig {
     #[online_config(skip)]
+    pub atomic_flush: bool,
+    #[online_config(skip)]
     pub manual_wal_flush: bool,
     #[online_config(skip)]
     pub fail_on_write: bool,
@@ -978,6 +980,7 @@ impl Default for DbConfig {
             ..Default::default()
         };
         DbConfig {
+            atomic_flush: false,
             manual_wal_flush: false,
             fail_on_write: false,
             wal_recovery_mode: DBRecoveryMode::PointInTime,
@@ -1023,9 +1026,9 @@ impl Default for DbConfig {
 impl DbConfig {
     pub fn build_opt(&self) -> DBOptions {
         let mut opts = DBOptions::new();
-        // shawgerj: necessary for atomic flush of multiple column families
+        // shawgerj: necessary to use atomic flush of multiple column families
         // with WAL disabled. https://github.com/facebook/rocksdb/wiki/Atomic-flush
-        opts.set_atomic_flush(true);
+        opts.set_atomic_flush(self.atomic_flush); // only set if tikv_disable_wal was given
         opts.set_fail_on_write(self.fail_on_write);
         opts.set_wal_recovery_mode(self.wal_recovery_mode);
         if !self.wal_dir.is_empty() {
@@ -2354,6 +2357,9 @@ pub struct TiKvConfig {
     pub cfg_path: String,
 
     #[online_config(skip)]
+    pub tikv_disable_wal: bool,
+    
+    #[online_config(skip)]
     pub fail_on_write: bool,
 
     #[online_config(skip)]
@@ -2460,6 +2466,7 @@ pub struct TiKvConfig {
 impl Default for TiKvConfig {
     fn default() -> TiKvConfig {
         TiKvConfig {
+            tikv_disable_wal: false,
             fail_on_write: false,
             cfg_path: "".to_owned(),
             log_level: slog::Level::Info,

@@ -210,6 +210,11 @@ pub fn initial_metric(cfg: &MetricConfig) {
 
 #[allow(dead_code)]
 pub fn overwrite_config_with_cmd_args(config: &mut TiKvConfig, matches: &ArgMatches<'_>) {
+    if matches.is_present("tikv-disable-wal") {
+        config.tikv_disable_wal = true;
+        config.raft_store.tikv_disable_wal = true;
+        config.rocksdb.atomic_flush = true;
+    }
     if matches.is_present("fail-on-write") {
          config.rocksdb.fail_on_write = true;
     }

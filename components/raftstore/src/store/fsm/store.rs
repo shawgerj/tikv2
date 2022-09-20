@@ -1288,6 +1288,7 @@ impl<EK: KvEngine, ER: RaftEngine> RaftBatchSystem<EK, ER> {
             self.router(),
             engines.clone(),
             cfg.value().raft_log_compact_sync_interval.0,
+            cfg.value().tikv_disable_wal,
         );
         let raftlog_gc_scheduler = workers
             .background_worker
