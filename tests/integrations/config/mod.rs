@@ -152,6 +152,7 @@ fn test_serde_custom_tikv_config() {
     store_batch_system.pool_size = 3;
     store_batch_system.reschedule_duration = ReadableDuration::secs(2);
     value.raft_store = RaftstoreConfig {
+        tikv_disable_wal: true,
         prevote: false,
         raftdb_path: "/var".to_owned(),
         capacity: ReadableSize(123),
@@ -248,6 +249,7 @@ fn test_serde_custom_tikv_config() {
         purge_obsolete_files_period: ReadableDuration::secs(1),
     };
     value.rocksdb = DbConfig {
+        atomic_flush: true,
         manual_wal_flush: false,
         fail_on_write: false,
         wal_recovery_mode: DBRecoveryMode::AbsoluteConsistency,

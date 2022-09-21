@@ -279,6 +279,7 @@ mod tests {
             ch: r,
             tasks: vec![],
             compact_sync_interval: Duration::from_secs(5),
+            tikv_disable_wal: true,
         };
 
         // generate raft logs
