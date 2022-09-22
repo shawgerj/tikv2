@@ -603,12 +603,12 @@ where
         // need_sync is only true when admin commands (except gc) or ingest sst
         // are processed. Not the common case. We don't have a WAL to sync, so
         // flush the memtables...
-        if need_sync && self.tikv_disable_wal {
-            print!{"Flushing in apply write_to_db\n"};
-            self.engines.kv.flush_all().unwrap_or_else(|e| {
-                panic!("failed to flush kv in apply write_to_db: {:?}", e);
-            });
-        }
+        // if need_sync && self.tikv_disable_wal {
+        //     print!{"Flushing in apply write_to_db\n"};
+        //     self.engines.kv.flush_all().unwrap_or_else(|e| {
+        //         panic!("failed to flush kv in apply write_to_db: {:?}", e);
+        //     });
+        // }
         fail_point!(
             "write_to_db_after_sync_memtables",
             |_| {
