@@ -520,20 +520,37 @@ where
 
             let now = Instant::now();
             self.perf_context.start_observe();
-            self.engines
-                .raft
-                .consume_and_shrink(
-                    &mut self.batch.raft_wb,
-                    true,
-                    RAFT_WB_SHRINK_SIZE,
-                    RAFT_WB_DEFAULT_SIZE,
-                )
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "store {}: {} failed to write to raft engine: {:?}",
-                        self.store_id, self.tag, e
-                    );
-                });
+            if self.tikv_disable_wal {
+                self.engines
+                    .raft
+                    .consume_and_shrink(
+                        &mut self.batch.raft_wb,
+                        false, // don't sync to simulate value log, unrealistic
+                        RAFT_WB_SHRINK_SIZE,
+                        RAFT_WB_DEFAULT_SIZE,
+                    )
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "store {}: {} failed to write to raft engine: {:?}",
+                            self.store_id, self.tag, e
+                        );
+                    });
+            } else {
+                self.engines
+                    .raft
+                    .consume_and_shrink(
+                        &mut self.batch.raft_wb,
+                        true,
+                        RAFT_WB_SHRINK_SIZE,
+                        RAFT_WB_DEFAULT_SIZE,
+                    )
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "store {}: {} failed to write to raft engine: {:?}",
+                            self.store_id, self.tag, e
+                        );
+                    });
+            }
             self.perf_context.report_metrics();
             write_raft_time = duration_to_sec(now.saturating_elapsed());
             STORE_WRITE_RAFTDB_DURATION_HISTOGRAM.observe(write_raft_time);
@@ -735,12 +752,22 @@ where
         });
     }
     if !batch.raft_wb.is_empty() {
-        engines
-            .raft
-            .consume(&mut batch.raft_wb, true)
-            .unwrap_or_else(|e| {
-                panic!("test failed to write to raft engine: {:?}", e);
-            });
+        if self.tikv_disable_wal {
+            engines
+                .raft
+                .consume(&mut batch.raft_wb, false) // don't sync now
+                .unwrap_or_else(|e| {
+                    panic!("test failed to write to raft engine: {:?}", e);
+                });
+        }
+        else {
+            engines
+                .raft
+                .consume(&mut batch.raft_wb, true)
+                .unwrap_or_else(|e| {
+                    panic!("test failed to write to raft engine: {:?}", e);
+                });
+        }
     }
 }
 

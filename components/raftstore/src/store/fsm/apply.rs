@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::vec::Drain;
 use std::{cmp, usize};
+use lazy_static::lazy_static;
 
 use batch_system::{
     BasicMailbox, BatchRouter, BatchSystem, Fsm, HandleResult, HandlerBuilder, PollHandler,
@@ -84,6 +85,10 @@ const DEFAULT_APPLY_WB_SIZE: usize = 4 * 1024;
 const APPLY_WB_SHRINK_SIZE: usize = 1024 * 1024;
 const SHRINK_PENDING_CMD_QUEUE_CAP: usize = 64;
 const MAX_APPLY_BATCH_SIZE: usize = 64 * 1024 * 1024;
+
+lazy_static! {
+    static ref value_cnt: Mutex<u32> = Mutex::new(0);
+}
 
 pub struct PendingCmd<S>
 where
@@ -1611,7 +1616,16 @@ where
         ctx: &mut ApplyContext<EK, ER>,
         req: &Request,
     ) -> Result<()> {
-        let (key, value) = (req.get_put().get_key(), req.get_put().get_value());
+        // value is just a counter. Eventually pointer to value log
+        let mut cnt = value_cnt.lock().unwrap();
+        *cnt += 1; // update counter
+        let v = &cnt.to_be_bytes()[..]; // do not fully understand why [..] 
+
+        let (key, value) = match ctx.tikv_disable_wal {
+            false => (req.get_put().get_key(), req.get_put().get_value()),
+            true => (req.get_put().get_key(), v),
+        };
+        
         // region key range has no data prefix, so we must use origin key to check.
         util::check_key_in_region(key, &self.region)?;
 
